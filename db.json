@@ -70,5 +70,41 @@
       ]
     }
   ],
+  "historial": [
+    {
+      "id": "1",
+      "pedidoId": "100",
+      "timestamp": "2026-10-19T08:00:00.000Z",
+      "resultado": "rechazado",
+      "motivo": "Fuera de cobertura: solo despachamos dentro de Costa Rica"
+    },
+    {
+      "id": "2",
+      "pedidoId": "101",
+      "timestamp": "2026-10-19T08:30:00.000Z",
+      "resultado": "aprobado",
+      "zona": "GAM",
+      "total": 17500,
+      "motivo": "Envío a zona GAM"
+    },
+    {
+      "id": "3",
+      "pedidoId": "102",
+      "timestamp": "2026-10-19T09:00:00.000Z",
+      "resultado": "aprobado",
+      "zona": "GAM",
+      "total": 52500,
+      "motivo": "Envío gratis por compra mayor o igual a 50000"
+    },
+    {
+      "id": "4",
+      "pedidoId": "103",
+      "timestamp": "2026-10-19T09:30:00.000Z",
+      "resultado": "aprobado",
+      "zona": "Rural",
+      "total": 20500,
+      "motivo": "Envío a zona Rural"
+    }
+  ],
   "$schema": "./node_modules/json-server/schema.json"
 }

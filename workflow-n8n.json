@@ -1,5 +1,5 @@
 {
-  "name": "Pedidos con verificación geográfica de cobertura",
+  "name": "Pedidos con verificación geográfica de cobertura (Reto 4: Historial y Tendencia)",
   "nodes": [
     {
       "parameters": {
@@ -38,7 +38,7 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        272,
+        240,
         320
       ]
     },
@@ -51,7 +51,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        496,
+        460,
         320
       ]
     },
@@ -85,7 +85,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        720,
+        680,
         320
       ]
     },
@@ -110,7 +110,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.5,
       "position": [
-        944,
+        900,
         416
       ],
       "onError": "continueErrorOutput"
@@ -144,7 +144,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1168,
+        1120,
         320
       ]
     },
@@ -173,21 +173,47 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.5,
       "position": [
-        800,
-        416
+        1340,
+        320
       ],
       "onError": "continueErrorOutput"
     },
     {
       "parameters": {
-        "jsCode": "// ===== Clases POO (misma lógica que main.js) =====\nclass Producto {\n  constructor(data) {\n    this.nombre = data.nombre || 'Sin nombre';\n    this.cantidad = Number(data.cantidad) || 0;\n    this.precio = Number(data.precio) || 0;\n  }\n  calcularTotal() { return this.cantidad * this.precio; }\n}\n\nclass Pedido {\n  constructor(data) {\n    this.id = data.id;\n    this.cliente = data.cliente;\n    this.estado = data.estado;\n    this.productos = (data.productos || []).map(function (p) { return new Producto(p); });\n  }\n  tieneProductos() { return this.productos.some(function (p) { return p.cantidad > 0; }); }\n  calcularSubtotal() { return this.productos.reduce(function (s, p) { return s + p.calcularTotal(); }, 0); }\n  totalUnidades() { return this.productos.reduce(function (s, p) { return s + p.cantidad; }, 0); }\n  estaPendiente() { return String(this.estado).toLowerCase() === 'pendiente'; }\n}\n\nclass Ubicacion {\n  constructor(data) {\n    this.status = data.status;\n    this.mensaje = data.message;\n    this.pais = data.country;\n    this.codigoPais = data.countryCode;\n    this.region = data.regionName || '';\n    this.ciudad = data.city || '';\n    this.ip = data.query;\n  }\n  esValida() { return this.status === 'success'; }\n  provinciaNormalizada() {\n    return (this.region || '').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase()\n      .replace('provincia de', '').replace('province', '').trim();\n  }\n}\n\nclass PoliticaEnvio {\n  constructor() {\n    this.paisPermitido = 'CR';\n    this.zonas = {\n      'san jose': { zona: 'GAM', tarifa: 2500 },\n      'alajuela': { zona: 'GAM', tarifa: 2500 },\n      'heredia': { zona: 'GAM', tarifa: 2500 },\n      'cartago': { zona: 'GAM', tarifa: 2500 },\n      'puntarenas': { zona: 'Rural', tarifa: 4500 },\n      'guanacaste': { zona: 'Rural', tarifa: 4500 },\n      'limon': { zona: 'Rural', tarifa: 4500 }\n    };\n    this.montoEnvioGratis = 50000;\n    this.unidadesSinRecargo = 5;\n    this.recargoPorUnidad = 500;\n  }\n  buscarZona(ubicacion) {\n    const prov = ubicacion.provinciaNormalizada();\n    const claves = Object.keys(this.zonas);\n    for (let i = 0; i < claves.length; i++) {\n      if (prov.indexOf(claves[i]) !== -1) return this.zonas[claves[i]];\n    }\n    return null;\n  }\n  calcularCosto(pedido, zona) {\n    // Regla 5: envío gratis si el subtotal alcanza el mínimo\n    if (pedido.calcularSubtotal() >= this.montoEnvioGratis) return 0;\n    // Regla 6: recargo por unidades adicionales\n    const extra = Math.max(0, pedido.totalUnidades() - this.unidadesSinRecargo) * this.recargoPorUnidad;\n    return zona.tarifa + extra;\n  }\n  evaluar(pedido, ubicacion) {\n    // Regla 1: el pedido debe tener productos\n    if (!pedido.tieneProductos()) return { aprobado: false, motivo: 'El pedido no tiene productos válidos' };\n    // Regla 2: la IP debe poder geolocalizarse (situación inesperada)\n    if (!ubicacion.esValida()) return { aprobado: false, motivo: 'No se pudo determinar la ubicación de la IP ' + (ubicacion.ip || '') + ' (' + (ubicacion.mensaje || 'sin detalle') + ')' };\n    // Regla 3: solo se despacha dentro del país permitido\n    if (ubicacion.codigoPais !== this.paisPermitido) return { aprobado: false, motivo: 'Fuera de cobertura: solo despachamos dentro de Costa Rica (cliente ubicado en ' + (ubicacion.pais || 'Desconocido') + ')' };\n    // Regla 4: la provincia debe estar en una zona con cobertura\n    const zona = this.buscarZona(ubicacion);\n    if (!zona) return { aprobado: false, motivo: 'Fuera de cobertura: la región \"' + ubicacion.region + '\" no está en nuestras zonas de despacho' };\n    const costo = this.calcularCosto(pedido, zona);\n    return { aprobado: true, zona: zona.zona, costoEnvio: costo, motivo: costo === 0 ? 'Envío gratis por compra mayor o igual a 50000' : 'Envío a zona ' + zona.zona };\n  }\n}\n\n// ===== Aplicación sobre los datos reales =====\nconst pedido = new Pedido($('Obtener pedido (JSON Server)').first().json);\nconst ubicacion = new Ubicacion($input.first().json);\nconst resultado = new PoliticaEnvio().evaluar(pedido, ubicacion);\nconst subtotal = pedido.calcularSubtotal();\n\nreturn [{ json: {\n  pedidoId: pedido.id,\n  cliente: pedido.cliente,\n  aprobado: resultado.aprobado,\n  motivo: resultado.motivo,\n  zona: resultado.zona || null,\n  subtotal: subtotal,\n  costoEnvio: resultado.aprobado ? resultado.costoEnvio : null,\n  total: resultado.aprobado ? subtotal + resultado.costoEnvio : null,\n  ubicacion: { pais: ubicacion.pais, region: ubicacion.region, ciudad: ubicacion.ciudad, ip: ubicacion.ip },\n  jsonServerUrl: $('Validar datos del pedido').first().json.jsonServerUrl\n} }];"
+        "url": "={{ $(\"Configuración\").first().json.jsonServerUrl }}/historial",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "ngrok-skip-browser-warning",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 8000
+        }
+      },
+      "id": "a90192ea-7431-419b-a3be-b928f0923019",
+      "name": "Obtener historial (JSON Server)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1560,
+        320
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ===== 1. Clases POO (misma lógica que main.js) =====\nclass Producto {\n  constructor(data = {}) {\n    this.nombre = data.nombre || 'Sin nombre';\n    this.cantidad = Number(data.cantidad) || 0;\n    this.precio = Number(data.precio) || 0;\n  }\n  calcularTotal() { return this.cantidad * this.precio; }\n}\n\nclass Pedido {\n  constructor(data = {}) {\n    this.id = data.id;\n    this.cliente = data.cliente || 'Desconocido';\n    this.estado = data.estado || 'pendiente';\n    this.productos = (data.productos || []).map(p => new Producto(p));\n  }\n  tieneProductos() { return this.productos.some(p => p.cantidad > 0); }\n  calcularSubtotal() { return this.productos.reduce((s, p) => s + p.calcularTotal(), 0); }\n  totalUnidades() { return this.productos.reduce((s, p) => s + p.cantidad, 0); }\n  estaPendiente() { return String(this.estado).trim().toLowerCase() === 'pendiente'; }\n}\n\nclass Ubicacion {\n  constructor(data = {}) {\n    this.status = data.status || 'fail';\n    this.mensaje = data.message || '';\n    this.pais = data.country || '';\n    this.codigoPais = data.countryCode || '';\n    this.region = data.regionName || '';\n    this.ciudad = data.city || '';\n    this.ip = data.query || '';\n  }\n  esValida() { return this.status === 'success'; }\n  provinciaNormalizada() {\n    return (this.region || '').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase()\n      .replace('provincia de', '').replace('province', '').trim();\n  }\n}\n\nclass PoliticaEnvio {\n  constructor() {\n    this.paisPermitido = 'CR';\n    this.zonas = {\n      'san jose': { zona: 'GAM', tarifa: 2500 },\n      'alajuela': { zona: 'GAM', tarifa: 2500 },\n      'heredia': { zona: 'GAM', tarifa: 2500 },\n      'cartago': { zona: 'GAM', tarifa: 2500 },\n      'puntarenas': { zona: 'Rural', tarifa: 4500 },\n      'guanacaste': { zona: 'Rural', tarifa: 4500 },\n      'limon': { zona: 'Rural', tarifa: 4500 }\n    };\n    this.montoEnvioGratis = 50000;\n    this.unidadesSinRecargo = 5;\n    this.recargoPorUnidad = 500;\n  }\n  buscarZona(ubicacion) {\n    const prov = ubicacion.provinciaNormalizada();\n    const claves = Object.keys(this.zonas);\n    for (let i = 0; i < claves.length; i++) {\n      if (prov.indexOf(claves[i]) !== -1) return this.zonas[claves[i]];\n    }\n    return null;\n  }\n  calcularCosto(pedido, zona) {\n    if (pedido.calcularSubtotal() >= this.montoEnvioGratis) return 0;\n    const extra = Math.max(0, pedido.totalUnidades() - this.unidadesSinRecargo) * this.recargoPorUnidad;\n    return zona.tarifa + extra;\n  }\n  evaluar(pedido, ubicacion) {\n    if (!pedido.tieneProductos()) return { aprobado: false, motivo: 'El pedido no tiene productos válidos' };\n    if (!ubicacion.esValida()) return { aprobado: false, motivo: 'No se pudo determinar la ubicación de la IP ' + (ubicacion.ip || '') + ' (' + (ubicacion.mensaje || 'sin detalle') + ')' };\n    if (ubicacion.codigoPais !== this.paisPermitido) return { aprobado: false, motivo: 'Fuera de cobertura: solo despachamos dentro de Costa Rica (cliente ubicado en ' + (ubicacion.pais || 'Desconocido') + ')' };\n    const zona = this.buscarZona(ubicacion);\n    if (!zona) return { aprobado: false, motivo: 'Fuera de cobertura: la región \"' + ubicacion.region + '\" no está en nuestras zonas de despacho' };\n    const costo = this.calcularCosto(pedido, zona);\n    return { aprobado: true, zona: zona.zona, costoEnvio: costo, motivo: costo === 0 ? 'Envío gratis por compra mayor o igual a 50000' : 'Envío a zona ' + zona.zona };\n  }\n}\n\n// RETO 4: Clase HistorialTendencia\nclass HistorialTendencia {\n  constructor(registros = []) {\n    this.registros = Array.isArray(registros) ? registros : [];\n  }\n  calcularTasaAprobacion(lista = this.registros) {\n    if (!lista || lista.length === 0) return 0;\n    const aprobados = lista.filter(r => String(r.resultado || r.estado || '').toLowerCase() === 'aprobado').length;\n    return Number(((aprobados / lista.length) * 100).toFixed(1));\n  }\n  determinarTendencia() {\n    const total = this.registros.length;\n    if (total < 2) {\n      return {\n        tendencia: 'Insuficiente',\n        totalRegistros: total,\n        tasaGlobal: this.calcularTasaAprobacion(),\n        diagnostico: 'Se requieren al menos 2 registros en el historial para calcular una tendencia temporal.'\n      };\n    }\n    const puntoMedio = Math.floor(total / 2);\n    const bloqueAnterior = this.registros.slice(0, puntoMedio);\n    const bloqueReciente = this.registros.slice(puntoMedio);\n    const tasaAnterior = this.calcularTasaAprobacion(bloqueAnterior);\n    const tasaReciente = this.calcularTasaAprobacion(bloqueReciente);\n    const delta = Number((tasaReciente - tasaAnterior).toFixed(1));\n    let tendencia = 'Estable';\n    let diagnostico = '';\n    if (delta > 5) {\n      tendencia = 'Mejorando';\n      diagnostico = `La efectividad logística está MEJORANDO: la tasa de aprobación subió de ${tasaAnterior}% a ${tasaReciente}% (+${delta}%).`;\n    } else if (delta < -5) {\n      tendencia = 'Empeorando';\n      diagnostico = `La efectividad logística está EMPEORANDO: la tasa de aprobación cayó de ${tasaAnterior}% a ${tasaReciente}% (${delta}%). Mayor concentración de rechazos recientes.`;\n    } else {\n      tendencia = 'Estable';\n      diagnostico = `La efectividad logística se mantiene ESTABLE con una tasa promedio de ${tasaReciente}%.`;\n    }\n    return { tendencia, tasaReciente, tasaAnterior, diferencia: delta, totalRegistros: total, diagnostico };\n  }\n}\n\n// ===== 2. Instanciación y Ejecución =====\nconst pedidoRaw = $('Obtener pedido (JSON Server)').first().json;\nconst geoRaw = $('Geolocalizar IP (IP-API)').first().json;\nlet historialRaw = [];\ntry {\n  historialRaw = $('Obtener historial (JSON Server)').all().map(item => item.json);\n} catch (e) { historialRaw = []; }\n\nconst pedido = new Pedido(pedidoRaw);\nconst ubicacion = new Ubicacion(geoRaw);\nconst resultado = new PoliticaEnvio().evaluar(pedido, ubicacion);\nconst subtotal = pedido.calcularSubtotal();\n\nconst analista = new HistorialTendencia(historialRaw);\nconst analisisTendencia = analista.determinarTendencia();\n\nreturn [{ json: {\n  pedidoId: pedido.id,\n  cliente: pedido.cliente,\n  aprobado: resultado.aprobado,\n  motivo: resultado.motivo,\n  zona: resultado.zona || null,\n  subtotal: subtotal,\n  costoEnvio: resultado.aprobado ? resultado.costoEnvio : null,\n  total: resultado.aprobado ? subtotal + resultado.costoEnvio : null,\n  ubicacion: { pais: ubicacion.pais, region: ubicacion.region, ciudad: ubicacion.ciudad, ip: ubicacion.ip },\n  tendencia: analisisTendencia,\n  jsonServerUrl: $('Validar datos del pedido').first().json.jsonServerUrl\n} }];"
       },
       "id": "9752f207-1308-4cf8-9929-e8ddd9c4ded8",
       "name": "Evaluar cobertura y costo (POO)",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1024,
+        1780,
         320
       ]
     },
@@ -221,7 +247,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1248,
+        2000,
         320
       ]
     },
@@ -250,14 +276,44 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.5,
       "position": [
-        1328,
+        2100,
         224
       ]
     },
     {
       "parameters": {
+        "method": "POST",
+        "url": "={{ $(\"Configuración\").first().json.jsonServerUrl }}/historial",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "ngrok-skip-browser-warning",
+              "value": "true"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { pedidoId: $json.id, timestamp: $now.toISO(), resultado: \"aprobado\", zona: $json.zonaEnvio, total: $json.total, motivo: $json.observacion } }}",
+        "options": {
+          "timeout": 8000
+        }
+      },
+      "id": "e4587c12-3214-4691-8910-18471bdf2011",
+      "name": "Registrar historial aprobado",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2320,
+        224
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ { ok: true, estado: \"aprobado\", pedido: $json } }}",
+        "responseBody": "={{ { ok: true, estado: \"aprobado\", pedido: $(\"Actualizar pedido aprobado\").first().json, analisisTendencia: $(\"Evaluar cobertura y costo (POO)\").first().json.tendencia } }}",
         "options": {
           "responseCode": 200
         }
@@ -267,7 +323,7 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
       "position": [
-        1552,
+        2540,
         224
       ]
     },
@@ -296,14 +352,44 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.5,
       "position": [
-        1328,
+        2100,
         416
       ]
     },
     {
       "parameters": {
+        "method": "POST",
+        "url": "={{ $(\"Configuración\").first().json.jsonServerUrl }}/historial",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "ngrok-skip-browser-warning",
+              "value": "true"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { pedidoId: $json.id, timestamp: $now.toISO(), resultado: \"rechazado\", zona: null, total: 0, motivo: $json.motivoRechazo } }}",
+        "options": {
+          "timeout": 8000
+        }
+      },
+      "id": "a1195d43-8501-4ec9-8d19-94301bdf2022",
+      "name": "Registrar historial rechazado",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2320,
+        416
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ { ok: false, estado: \"rechazado\", motivo: $json.motivoRechazo, pedido: $json } }}",
+        "responseBody": "={{ { ok: false, estado: \"rechazado\", motivo: $(\"Actualizar pedido rechazado\").first().json.motivoRechazo, pedido: $(\"Actualizar pedido rechazado\").first().json, analisisTendencia: $(\"Evaluar cobertura y costo (POO)\").first().json.tendencia } }}",
         "options": {
           "responseCode": 422
         }
@@ -313,7 +399,7 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
       "position": [
-        1552,
+        2540,
         416
       ]
     },
@@ -330,7 +416,7 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
       "position": [
-        1024,
+        1340,
         512
       ]
     },
@@ -347,8 +433,8 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
       "position": [
-        912,
-        0
+        1120,
+        120
       ]
     },
     {
@@ -364,8 +450,8 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
       "position": [
-        1168,
-        512
+        900,
+        550
       ]
     },
     {
@@ -381,8 +467,8 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
       "position": [
-        944,
-        224
+        680,
+        480
       ]
     }
   ],
@@ -479,7 +565,7 @@
       "main": [
         [
           {
-            "node": "Evaluar cobertura y costo (POO)",
+            "node": "Obtener historial (JSON Server)",
             "type": "main",
             "index": 0
           }
@@ -487,6 +573,17 @@
         [
           {
             "node": "Responder servicio de geolocalización caído",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Obtener historial (JSON Server)": {
+      "main": [
+        [
+          {
+            "node": "Evaluar cobertura y costo (POO)",
             "type": "main",
             "index": 0
           }
@@ -526,6 +623,17 @@
       "main": [
         [
           {
+            "node": "Registrar historial aprobado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar historial aprobado": {
+      "main": [
+        [
+          {
             "node": "Responder pedido aprobado",
             "type": "main",
             "index": 0
@@ -534,6 +642,17 @@
       ]
     },
     "Actualizar pedido rechazado": {
+      "main": [
+        [
+          {
+            "node": "Registrar historial rechazado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar historial rechazado": {
       "main": [
         [
           {
@@ -550,55 +669,10 @@
     "executionOrder": "v1",
     "binaryMode": "separate"
   },
-  "versionId": "4611283b-5674-447a-8f57-ac07ac51d104",
+  "versionId": "b18204b1-9124-4061-91a2-ec7281bc8912",
   "meta": {
     "instanceId": "4164489e38b6a700d6ca10201a388ac1c9b03f806a0b538293fb5796ae846812"
   },
-  "nodeGroups": [
-    {
-      "id": "37710938-47b0-4a9e-891b-74e9e3513bf9",
-      "name": "Validar y cargar pedido",
-      "nodeIds": [
-        "36794ce1-2601-459e-95cc-c46f118bb46f",
-        "7ced77bb-7277-4ce3-8011-90b87790181e",
-        "a7eac049-c929-4f06-9a4f-01d50331f377",
-        "7ad8a326-0502-4acd-a0c6-170101cd9e0c",
-        "6ad049cf-00e1-4cc3-b8e5-c074cf822e94",
-        "6f80352e-254b-4544-9111-357126ce28ef",
-        "cfe88923-7db0-4543-a767-288dc9b98736"
-      ],
-      "description": "Revisa número e IP del pedido y lo busca en la base; responde con error si faltan datos o el pedido no existe"
-    },
-    {
-      "id": "9fec199f-31ea-456e-b007-c9163c30fded",
-      "name": "Decidir cobertura de envío",
-      "nodeIds": [
-        "4b72e4e7-c1d7-428e-bef9-a75531794fc8",
-        "05f4453e-fabf-4c68-827e-81b160608766",
-        "9752f207-1308-4cf8-9929-e8ddd9c4ded8",
-        "ee174eb4-ae69-4ec8-be3c-33c3ef809f13"
-      ],
-      "description": "Ubica al cliente por su IP y aplica las reglas de zona, envío gratis y recargos para aprobar o rechazar"
-    },
-    {
-      "id": "83d2cb4f-9f9a-48fd-8026-97b5f5a904da",
-      "name": "Aprobar pedido",
-      "nodeIds": [
-        "7c67692b-068d-4c59-9029-9cdea0fcdb22",
-        "71c28f05-ca38-4ab7-a9a8-8a9e1032fb27"
-      ],
-      "description": "Guarda zona, costo de envío y total en el pedido y confirma la aprobación al cliente"
-    },
-    {
-      "id": "05a5c2c8-b3e5-4deb-acd2-5a9dcaaa85ee",
-      "name": "Rechazar pedido",
-      "nodeIds": [
-        "37085804-90cb-450c-ae0c-82118542a3eb",
-        "40c17b68-d37a-4dfe-ae20-e545d48dc03a"
-      ],
-      "description": "Marca el pedido como rechazado con el motivo claro y lo devuelve en la respuesta"
-    }
-  ],
   "id": "VSHXQ9Xdv8iwcSij",
   "tags": []
 }

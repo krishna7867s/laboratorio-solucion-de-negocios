@@ -1,6 +1,7 @@
 /**
  * ============================================================================
- * NODO CODE DE n8n: EVALUAR COBERTURA Y COSTO (POO)
+ * NODO CODE DE n8n: EVALUAR COBERTURA, COSTO Y TENDENCIA HISTÓRICA (POO)
+ * EXTENSIÓN: RETO 4 - HISTORIAL Y TENDENCIA
  * Archivo: nodo-code-n8n.js
  * 
  * Instrucciones: Copiar y pegar todo el contenido de este archivo directamente
@@ -8,9 +9,10 @@
  * ============================================================================
  */
 
-// ===== Clases POO (misma lógica que main.js) =====
+// ===== 1. CLASES DE NEGOCIO POO =====
+
 class Producto {
-  constructor(data) {
+  constructor(data = {}) {
     this.nombre = data.nombre || 'Sin nombre';
     this.cantidad = Number(data.cantidad) || 0;
     this.precio = Number(data.precio) || 0;
@@ -21,10 +23,10 @@ class Producto {
 }
 
 class Pedido {
-  constructor(data) {
+  constructor(data = {}) {
     this.id = data.id;
-    this.cliente = data.cliente;
-    this.estado = data.estado;
+    this.cliente = data.cliente || 'Desconocido';
+    this.estado = data.estado || 'pendiente';
     this.productos = (data.productos || []).map(p => new Producto(p));
   }
   tieneProductos() { 
@@ -37,19 +39,19 @@ class Pedido {
     return this.productos.reduce((s, p) => s + p.cantidad, 0); 
   }
   estaPendiente() { 
-    return String(this.estado).toLowerCase() === 'pendiente'; 
+    return String(this.estado).trim().toLowerCase() === 'pendiente'; 
   }
 }
 
 class Ubicacion {
-  constructor(data) {
-    this.status = data.status;
-    this.mensaje = data.message;
-    this.pais = data.country;
-    this.codigoPais = data.countryCode;
+  constructor(data = {}) {
+    this.status = data.status || 'fail';
+    this.mensaje = data.message || '';
+    this.pais = data.country || '';
+    this.codigoPais = data.countryCode || '';
     this.region = data.regionName || '';
     this.ciudad = data.city || '';
-    this.ip = data.query;
+    this.ip = data.query || '';
   }
   esValida() { 
     return this.status === 'success'; 
@@ -85,26 +87,20 @@ class PoliticaEnvio {
     return null;
   }
   calcularCosto(pedido, zona) {
-    // Regla 5: envío gratis si el subtotal alcanza el mínimo (>= 50000)
     if (pedido.calcularSubtotal() >= this.montoEnvioGratis) return 0;
-    // Regla 6: recargo por unidades adicionales (> 5 unidades)
     const extra = Math.max(0, pedido.totalUnidades() - this.unidadesSinRecargo) * this.recargoPorUnidad;
     return zona.tarifa + extra;
   }
   evaluar(pedido, ubicacion) {
-    // Regla 1: el pedido debe tener productos
     if (!pedido.tieneProductos()) {
       return { aprobado: false, motivo: 'El pedido no tiene productos válidos' };
     }
-    // Regla 2: la IP debe poder geolocalizarse (situación inesperada)
     if (!ubicacion.esValida()) {
       return { aprobado: false, motivo: 'No se pudo determinar la ubicación de la IP ' + (ubicacion.ip || '') + ' (' + (ubicacion.mensaje || 'sin detalle') + ')' };
     }
-    // Regla 3: solo se despacha dentro del país permitido (Costa Rica)
     if (ubicacion.codigoPais !== this.paisPermitido) {
       return { aprobado: false, motivo: 'Fuera de cobertura: solo despachamos dentro de Costa Rica (cliente ubicado en ' + (ubicacion.pais || 'Desconocido') + ')' };
     }
-    // Regla 4: la provincia debe estar en una zona con cobertura (GAM o Rural)
     const zona = this.buscarZona(ubicacion);
     if (!zona) {
       return { aprobado: false, motivo: 'Fuera de cobertura: la región "' + ubicacion.region + '" no está en nuestras zonas de despacho' };
@@ -119,11 +115,82 @@ class PoliticaEnvio {
   }
 }
 
-// ===== Aplicación sobre los datos reales en n8n =====
-const pedido = new Pedido($('Obtener pedido (JSON Server)').first().json);
-const ubicacion = new Ubicacion($input.first().json);
+/**
+ * RETO 4: Clase HistorialTendencia
+ */
+class HistorialTendencia {
+  constructor(registros = []) {
+    this.registros = Array.isArray(registros) ? registros : [];
+  }
+  calcularTasaAprobacion(lista = this.registros) {
+    if (!lista || lista.length === 0) return 0;
+    const aprobados = lista.filter(r => String(r.resultado || r.estado || '').toLowerCase() === 'aprobado').length;
+    return Number(((aprobados / lista.length) * 100).toFixed(1));
+  }
+  determinarTendencia() {
+    const total = this.registros.length;
+    if (total < 2) {
+      return {
+        tendencia: 'Insuficiente',
+        totalRegistros: total,
+        tasaGlobal: this.calcularTasaAprobacion(),
+        diagnostico: 'Se requieren al menos 2 registros en el historial para calcular una tendencia temporal.'
+      };
+    }
+    const puntoMedio = Math.floor(total / 2);
+    const bloqueAnterior = this.registros.slice(0, puntoMedio);
+    const bloqueReciente = this.registros.slice(puntoMedio);
+
+    const tasaAnterior = this.calcularTasaAprobacion(bloqueAnterior);
+    const tasaReciente = this.calcularTasaAprobacion(bloqueReciente);
+    const delta = Number((tasaReciente - tasaAnterior).toFixed(1));
+
+    let tendencia = 'Estable';
+    let diagnostico = '';
+
+    if (delta > 5) {
+      tendencia = 'Mejorando';
+      diagnostico = `La efectividad logística está MEJORANDO: la tasa de aprobación subió de ${tasaAnterior}% a ${tasaReciente}% (+${delta}%).`;
+    } else if (delta < -5) {
+      tendencia = 'Empeorando';
+      diagnostico = `La efectividad logística está EMPEORANDO: la tasa de aprobación cayó de ${tasaAnterior}% a ${tasaReciente}% (${delta}%). Mayor concentración de rechazos recientes.`;
+    } else {
+      tendencia = 'Estable';
+      diagnostico = `La efectividad logística se mantiene ESTABLE con una tasa promedio de ${tasaReciente}%.`;
+    }
+
+    return {
+      tendencia,
+      tasaReciente,
+      tasaAnterior,
+      diferencia: delta,
+      totalRegistros: total,
+      diagnostico
+    };
+  }
+}
+
+// ===== 2. APLICACIÓN SOBRE DATOS DEL WORKFLOW EN n8n =====
+
+const pedidoRaw = $('Obtener pedido (JSON Server)').first().json;
+const geoRaw = $('Geolocalizar IP (IP-API)').first().json;
+
+// Obtener historial desde JSON Server (si existe el nodo Obtener historial)
+let historialRaw = [];
+try {
+  historialRaw = $('Obtener historial (JSON Server)').all().map(item => item.json);
+} catch (e) {
+  historialRaw = [];
+}
+
+const pedido = new Pedido(pedidoRaw);
+const ubicacion = new Ubicacion(geoRaw);
 const resultado = new PoliticaEnvio().evaluar(pedido, ubicacion);
 const subtotal = pedido.calcularSubtotal();
+
+// Evaluación de tendencia temporal con la clase HistorialTendencia (Reto 4)
+const analista = new HistorialTendencia(historialRaw);
+const analisisTendencia = analista.determinarTendencia();
 
 return [{ json: {
   pedidoId: pedido.id,
@@ -140,5 +207,6 @@ return [{ json: {
     ciudad: ubicacion.ciudad, 
     ip: ubicacion.ip 
   },
+  tendencia: analisisTendencia,
   jsonServerUrl: $('Validar datos del pedido').first().json.jsonServerUrl
 } }];

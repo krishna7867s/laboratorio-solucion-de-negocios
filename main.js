@@ -1,10 +1,11 @@
 /**
  * ============================================================================
  * LABORATORIO: ESCENARIO 2 - PEDIDOS CON VERIFICACIÓN GEOGRÁFICA DE COBERTURA
+ * EXTENSIÓN: RETO 4 - HISTORIAL Y TENDENCIA
  * Archivo: main.js (Programación Orientada a Objetos en JavaScript ES6+)
  * 
  * Este archivo implementa el modelo de clases de POO utilizado en el nodo Code
- * de n8n, permitiendo validaciones locales y pruebas unitarias independientes.
+ * de n8n, incluyendo la clase HistorialTendencia para análisis temporal de pedidos.
  * ============================================================================
  */
 
@@ -211,12 +212,89 @@ class PoliticaEnvio {
   }
 }
 
+/**
+ * RETO 4: Clase encargada de analizar el historial temporal de ejecuciones
+ * y diagnosticar si la cobertura y efectividad del sistema está mejorando o empeorando.
+ */
+class HistorialTendencia {
+  /**
+   * @param {Array<Object>} registros - Colección de ejecuciones previas desde JSON Server.
+   */
+  constructor(registros = []) {
+    this.registros = Array.isArray(registros) ? registros : [];
+  }
+
+  /**
+   * Calcula el porcentaje de aprobación (0 a 100) sobre un arreglo de registros.
+   * @param {Array<Object>} lista
+   * @returns {number}
+   */
+  calcularTasaAprobacion(lista = this.registros) {
+    if (!lista || lista.length === 0) return 0;
+    const aprobados = lista.filter(r => {
+      const res = String(r.resultado || r.estado || '').toLowerCase();
+      return res === 'aprobado';
+    }).length;
+    return Number(((aprobados / lista.length) * 100).toFixed(1));
+  }
+
+  /**
+   * Determina si la situación del negocio está 'Mejorando', 'Empeorando' o 'Estable'
+   * comparando la tasa de éxito de la mitad reciente vs la mitad anterior.
+   * @returns {Object} Diagnóstico de tendencia estructurado.
+   */
+  determinarTendencia() {
+    const total = this.registros.length;
+    if (total < 2) {
+      return {
+        tendencia: 'Insuficiente',
+        totalRegistros: total,
+        tasaGlobal: this.calcularTasaAprobacion(),
+        diagnostico: 'Se requieren al menos 2 registros en el historial para calcular una tendencia temporal.'
+      };
+    }
+
+    // Partición temporal: mitad más antigua vs mitad más reciente
+    const puntoMedio = Math.floor(total / 2);
+    const bloqueAnterior = this.registros.slice(0, puntoMedio);
+    const bloqueReciente = this.registros.slice(puntoMedio);
+
+    const tasaAnterior = this.calcularTasaAprobacion(bloqueAnterior);
+    const tasaReciente = this.calcularTasaAprobacion(bloqueReciente);
+    const delta = Number((tasaReciente - tasaAnterior).toFixed(1));
+
+    let tendencia = 'Estable';
+    let diagnostico = '';
+
+    if (delta > 5) {
+      tendencia = 'Mejorando';
+      diagnostico = `La efectividad logística está MEJORANDO: la tasa de aprobación subió de ${tasaAnterior}% a ${tasaReciente}% (+${delta}%).`;
+    } else if (delta < -5) {
+      tendencia = 'Empeorando';
+      diagnostico = `La efectividad logística está EMPEORANDO: la tasa de aprobación cayó de ${tasaAnterior}% a ${tasaReciente}% (${delta}%). Mayor concentración de rechazos recientes.`;
+    } else {
+      tendencia = 'Estable';
+      diagnostico = `La efectividad logística se mantiene ESTABLE con una tasa promedio de ${tasaReciente}%.`;
+    }
+
+    return {
+      tendencia,
+      tasaReciente,
+      tasaAnterior,
+      diferencia: delta,
+      totalRegistros: total,
+      diagnostico
+    };
+  }
+}
+
 // Exportar clases para uso modular
 module.exports = {
   Producto,
   Pedido,
   Ubicacion,
-  PoliticaEnvio
+  PoliticaEnvio,
+  HistorialTendencia
 };
 
 // ============================================================================
@@ -224,7 +302,7 @@ module.exports = {
 // ============================================================================
 if (require.main === module) {
   console.log("==================================================================");
-  console.log("    PRUEBAS UNITARIAS DE LÓGICA DE NEGOCIO (POO EN JAVASCRIPT)   ");
+  console.log("   PRUEBAS UNITARIAS POO (LÓGICA BASE + RETO 4: HISTORIAL/TENDENCIA) ");
   console.log("==================================================================\n");
 
   const politica = new PoliticaEnvio();
@@ -303,7 +381,7 @@ if (require.main === module) {
     id: "4",
     cliente: "Laura Castro",
     estado: "pendiente",
-    productos: [{ nombre: "Camiseta Deportiva", cantidad: 8, precio: 5000 }] // Subtotal 40000 (< 50000)
+    productos: [{ nombre: "Camiseta Deportiva", cantidad: 8, precio: 5000 }]
   });
   const u4 = new Ubicacion({
     status: "success",
@@ -372,7 +450,53 @@ if (require.main === module) {
   console.log(`    Aprobado: ${r7.aprobado} | Motivo: ${r7.motivo}`);
   console.assert(r7.aprobado === false, "Error en Test 7");
 
+  // ==========================================================================
+  // PRUEBAS DE LA EXTENSIÓN: RETO 4 (HistorialTendencia)
+  // ==========================================================================
+  console.log("\n------------------------------------------------------------------");
+  console.log("       PRUEBAS DE LA EXTENSIÓN: RETO 4 (HISTORIAL Y TENDENCIA)    ");
+  console.log("------------------------------------------------------------------");
+
+  // CASO 8: Historial con tendencia MEJORANDO
+  console.log(">>> [TEST 8] Tendencia 'Mejorando' (de 0% inicial a 100% reciente)...");
+  const historialMejorando = [
+    { resultado: "rechazado" },
+    { resultado: "rechazado" },
+    { resultado: "aprobado" },
+    { resultado: "aprobado" }
+  ];
+  const ht1 = new HistorialTendencia(historialMejorando);
+  const diag1 = ht1.determinarTendencia();
+  console.log(`    Tendencia detectada: ${diag1.tendencia} | ${diag1.diagnostico}`);
+  console.assert(diag1.tendencia === 'Mejorando', "Error en Test 8");
+
+  // CASO 9: Historial con tendencia EMPEORANDO
+  console.log("\n>>> [TEST 9] Tendencia 'Empeorando' (de 100% inicial a 0% reciente)...");
+  const historialEmpeorando = [
+    { resultado: "aprobado" },
+    { resultado: "aprobado" },
+    { resultado: "rechazado" },
+    { resultado: "rechazado" }
+  ];
+  const ht2 = new HistorialTendencia(historialEmpeorando);
+  const diag2 = ht2.determinarTendencia();
+  console.log(`    Tendencia detectada: ${diag2.tendencia} | ${diag2.diagnostico}`);
+  console.assert(diag2.tendencia === 'Empeorando', "Error en Test 9");
+
+  // CASO 10: Historial con tendencia ESTABLE
+  console.log("\n>>> [TEST 10] Tendencia 'Estable' (tasa similar en ambos periodos)...");
+  const historialEstable = [
+    { resultado: "aprobado" },
+    { resultado: "aprobado" },
+    { resultado: "aprobado" },
+    { resultado: "aprobado" }
+  ];
+  const ht3 = new HistorialTendencia(historialEstable);
+  const diag3 = ht3.determinarTendencia();
+  console.log(`    Tendencia detectada: ${diag3.tendencia} | ${diag3.diagnostico}`);
+  console.assert(diag3.tendencia === 'Estable', "Error en Test 10");
+
   console.log("\n==================================================================");
-  console.log("     TODOS LOS TESTS DE POO PASARON EXITOSAMENTE (7/7) ✅         ");
+  console.log("  TODAS LAS PRUEBAS PASARON EXITOSAMENTE (10/10) ✅ (INCLUYE RETO 4)");
   console.log("==================================================================");
 }
