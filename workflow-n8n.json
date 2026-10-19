@@ -1,0 +1,221 @@
+{
+  "id": "escenario-2-pedidos-geo",
+  "name": "Escenario 2 - Pedidos con Verificación Geográfica",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "pedido",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "node-webhook",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [180, 300],
+      "webhookId": "webhook-pedido-geo"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ Boolean($json.body && $json.body.id && $json.body.cliente && $json.body.monto && $json.body.ip && /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/.test($json.body.ip)) }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "node-if-validar-entrada",
+      "name": "IF - Datos e IP Válidos (Error 1)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [400, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"status\": \"error\",\n  \"mensaje\": \"Datos de pedido inválidos o IP no proporcionada con formato IPv4 válido.\"\n}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "node-resp-error-datos",
+      "name": "Respuesta 400 - Error Entrada",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [640, 480]
+    },
+    {
+      "parameters": {
+        "url": "=http://ip-api.com/json/{{ $json.body.ip }}",
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "node-http-ip-api",
+      "name": "HTTP Request (IP-API)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [640, 200],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Adaptación de las clases Pedido y ValidadorCobertura para n8n\nclass Pedido {\n  constructor({ id, cliente, monto, ip }) {\n    this.id = id;\n    this.cliente = cliente;\n    this.monto = Number(monto);\n    this.ip = ip;\n    this.costoEnvio = 0;\n    this.aprobado = false;\n    this.motivoRechazo = null;\n  }\n  aplicarCostoEnvio(c) { this.costoEnvio = Number(c); }\n  obtenerTotal() { return this.monto + this.costoEnvio; }\n  aprobar() { this.aprobado = true; }\n  rechazar(m) { this.aprobado = false; this.motivoRechazo = m; }\n  toJSON() {\n    return {\n      id: this.id,\n      cliente: this.cliente,\n      monto: this.monto,\n      costoEnvio: this.costoEnvio,\n      total: this.obtenerTotal(),\n      ip: this.ip,\n      aprobado: this.aprobado,\n      motivoRechazo: this.motivoRechazo\n    };\n  }\n}\n\nclass ValidadorCobertura {\n  constructor(tarifas = { GT: 25.0, SV: 35.0, HN: 40.0 }) {\n    this.tarifas = tarifas;\n  }\n  verificarZona(geo) {\n    if (!geo || geo.status !== 'success') {\n      return { cubierto: false, motivo: geo?.error || geo?.message || 'Falla al contactar servicio de geolocalización (API caída/timeout)' };\n    }\n    if (!this.tarifas[geo.countryCode]) {\n      return { cubierto: false, motivo: `Zona fuera de cobertura (${geo.country || 'Desconocido'})` };\n    }\n    return { cubierto: true, pais: geo.countryCode, ciudad: geo.city };\n  }\n  calcularCosto(geo, monto) {\n    return monto >= 500 ? 0.0 : this.tarifas[geo.countryCode];\n  }\n}\n\n// Obtención de datos del Webhook e IP-API\nconst rawOrder = $('Webhook Trigger').first().json.body;\nconst geoResponse = $input.first().json;\n\nconst validador = new ValidadorCobertura();\nconst pedido = new Pedido(rawOrder);\n\n// Manejo de Error 2: Falla de red o respuesta vacía de IP-API\nif (geoResponse.error || !geoResponse.status) {\n  pedido.rechazar('Error de conexión con IP-API externa');\n  return [{ json: { ...pedido.toJSON(), coberturaValida: false } }];\n}\n\nconst zona = validador.verificarZona(geoResponse);\nif (!zona.cubierto) {\n  pedido.rechazar(zona.motivo);\n  return [{ json: { ...pedido.toJSON(), coberturaValida: false } }];\n}\n\nconst costoEnvio = validador.calcularCosto(geoResponse, pedido.monto);\npedido.aplicarCostoEnvio(costoEnvio);\npedido.aprobar();\n\nreturn [{\n  json: {\n    ...pedido.toJSON(),\n    coberturaValida: true,\n    ubicacion: { pais: zona.pais, ciudad: zona.ciudad }\n  }\n}];"
+      },
+      "id": "node-code-logica",
+      "name": "Nodo Code (POO y Negocio)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.coberturaValida }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "node-if-cobertura",
+      "name": "IF - ¿Tiene Cobertura?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1120, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:3000/pedidos",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "node-http-json-server",
+      "name": "HTTP Request (JSON Server)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1360, 100]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $('HTTP Request (JSON Server)').first().json }}",
+        "options": {
+          "responseCode": 201
+        }
+      },
+      "id": "node-resp-exito",
+      "name": "Respuesta 201 - Pedido Guardado",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1600, 100]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"status\": \"rechazado\",\n  \"motivo\": \"{{ $json.motivoRechazo }}\",\n  \"pedido\": {{ JSON.stringify($json) }}\n}",
+        "options": {
+          "responseCode": 422
+        }
+      },
+      "id": "node-resp-rechazo",
+      "name": "Respuesta 422 - No Cobertura",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1360, 320]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "IF - Datos e IP Válidos (Error 1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Datos e IP Válidos (Error 1)": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request (IP-API)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respuesta 400 - Error Entrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request (IP-API)": {
+      "main": [
+        [
+          {
+            "node": "Nodo Code (POO y Negocio)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nodo Code (POO y Negocio)": {
+      "main": [
+        [
+          {
+            "node": "IF - ¿Tiene Cobertura?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - ¿Tiene Cobertura?": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request (JSON Server)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respuesta 422 - No Cobertura",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request (JSON Server)": {
+      "main": [
+        [
+          {
+            "node": "Respuesta 201 - Pedido Guardado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
