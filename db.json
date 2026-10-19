@@ -4,14 +4,26 @@
       "id": "1",
       "cliente": "Carlos Perez",
       "ip": "186.15.228.12",
-      "estado": "pendiente",
+      "estado": "aprobado",
       "productos": [
         {
           "nombre": "Teclado Mecanico",
           "cantidad": 1,
           "precio": 15000
         }
-      ]
+      ],
+      "zonaEnvio": "GAM",
+      "subtotal": 15000,
+      "costoEnvio": 2500,
+      "total": 17500,
+      "ubicacion": {
+        "pais": "Costa Rica",
+        "region": "Provincia de San José",
+        "ciudad": "San José",
+        "ip": "186.15.228.12"
+      },
+      "observacion": "Envío a zona GAM",
+      "procesadoEn": "2026-10-19T11:32:34.363-06:00"
     },
     {
       "id": "2",
@@ -104,6 +116,20 @@
       "zona": "Rural",
       "total": 20500,
       "motivo": "Envío a zona Rural"
+    },
+    {
+      "pedidoId": "1",
+      "cliente": "Carlos Perez",
+      "resultado": "aprobado",
+      "zona": "GAM",
+      "subtotal": 15000,
+      "costoEnvio": 2500,
+      "total": 17500,
+      "motivo": "Envío a zona GAM",
+      "pais": "Costa Rica",
+      "region": "Provincia de San José",
+      "fecha": "2026-10-19T11:32:34.683-06:00",
+      "id": "IHmfr4npNcs"
     }
   ],
   "$schema": "./node_modules/json-server/schema.json"
