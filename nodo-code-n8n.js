@@ -1,205 +1,144 @@
 /**
  * ============================================================================
- * NODO CODE DE n8n: LÓGICA DE NEGOCIO Y PROCESAMIENTO GEOGRÁFICO
+ * NODO CODE DE n8n: EVALUAR COBERTURA Y COSTO (POO)
  * Archivo: nodo-code-n8n.js
  * 
  * Instrucciones: Copiar y pegar todo el contenido de este archivo directamente
- * en el editor del nodo "Code" (Modo: "Run Once for All Items").
+ * en el editor del nodo "Evaluar cobertura y costo (POO)" en n8n.
  * ============================================================================
  */
 
-// ----------------------------------------------------------------------------
-// 1. DEFINICIÓN DE CLASES DE NEGOCIO (POO EN EL CONTEXTO DE n8n)
-// ----------------------------------------------------------------------------
+// ===== Clases POO (misma lógica que main.js) =====
+class Producto {
+  constructor(data) {
+    this.nombre = data.nombre || 'Sin nombre';
+    this.cantidad = Number(data.cantidad) || 0;
+    this.precio = Number(data.precio) || 0;
+  }
+  calcularTotal() { 
+    return this.cantidad * this.precio; 
+  }
+}
 
 class Pedido {
-  constructor({ id, cliente, ipCliente, producto, cantidad }) {
-    this.validarCampos({ id, cliente, ipCliente, producto, cantidad });
-
-    this.id = id;
-    this.cliente = String(cliente).trim();
-    this.ipCliente = String(ipCliente).trim();
-    this.producto = String(producto).trim();
-    this.cantidad = Number(cantidad);
-    this.estado = "Pendiente";
-    this.costoEnvio = 0;
-    this.paisDetectado = null;
-    this.motivoRechazo = null;
-    this.fechaProcesamiento = new Date().toISOString();
+  constructor(data) {
+    this.id = data.id;
+    this.cliente = data.cliente;
+    this.estado = data.estado;
+    this.productos = (data.productos || []).map(p => new Producto(p));
   }
-
-  validarCampos({ id, cliente, ipCliente, producto, cantidad }) {
-    // MANEJO DE ERROR 2: Datos obligatorios faltantes en la petición del cliente
-    if (!id || String(id).trim() === "") {
-      throw new Error("ERROR_DATOS_CLIENTE: El campo 'id' del pedido es obligatorio y no puede estar vacío.");
-    }
-    if (!ipCliente || String(ipCliente).trim() === "") {
-      throw new Error("ERROR_DATOS_CLIENTE: El campo 'ipCliente' es obligatorio para la validación geográfica.");
-    }
-    if (!cliente || String(cliente).trim() === "") {
-      throw new Error("ERROR_DATOS_CLIENTE: El campo 'cliente' es obligatorio.");
-    }
-    if (!producto || String(producto).trim() === "") {
-      throw new Error("ERROR_DATOS_CLIENTE: El campo 'producto' es obligatorio.");
-    }
-    if (cantidad === undefined || isNaN(cantidad) || Number(cantidad) <= 0) {
-      throw new Error("ERROR_DATOS_CLIENTE: El campo 'cantidad' debe ser un número mayor a cero.");
-    }
+  tieneProductos() { 
+    return this.productos.some(p => p.cantidad > 0); 
   }
-
-  asignarCostoEnvio(costo) {
-    this.costoEnvio = Number(costo);
+  calcularSubtotal() { 
+    return this.productos.reduce((s, p) => s + p.calcularTotal(), 0); 
   }
-
-  aprobar(pais) {
-    this.estado = "Aprobado";
-    this.paisDetectado = pais;
-    this.motivoRechazo = null;
+  totalUnidades() { 
+    return this.productos.reduce((s, p) => s + p.cantidad, 0); 
   }
-
-  rechazar(motivo) {
-    this.estado = "Rechazado";
-    this.costoEnvio = 0;
-    this.motivoRechazo = motivo;
+  estaPendiente() { 
+    return String(this.estado).toLowerCase() === 'pendiente'; 
   }
+}
 
-  aFormatoJsonServer() {
-    return {
-      id: this.id,
-      cliente: this.cliente,
-      ipCliente: this.ipCliente,
-      producto: this.producto,
-      cantidad: this.cantidad,
-      paisDetectado: this.paisDetectado,
-      costoEnvio: this.costoEnvio,
-      estado: this.estado,
-      motivoRechazo: this.motivoRechazo,
-      fechaProcesamiento: this.fechaProcesamiento
+class Ubicacion {
+  constructor(data) {
+    this.status = data.status;
+    this.mensaje = data.message;
+    this.pais = data.country;
+    this.codigoPais = data.countryCode;
+    this.region = data.regionName || '';
+    this.ciudad = data.city || '';
+    this.ip = data.query;
+  }
+  esValida() { 
+    return this.status === 'success'; 
+  }
+  provinciaNormalizada() {
+    return (this.region || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+      .replace('provincia de', '').replace('province', '').trim();
+  }
+}
+
+class PoliticaEnvio {
+  constructor() {
+    this.paisPermitido = 'CR';
+    this.zonas = {
+      'san jose': { zona: 'GAM', tarifa: 2500 },
+      'alajuela': { zona: 'GAM', tarifa: 2500 },
+      'heredia': { zona: 'GAM', tarifa: 2500 },
+      'cartago': { zona: 'GAM', tarifa: 2500 },
+      'puntarenas': { zona: 'Rural', tarifa: 4500 },
+      'guanacaste': { zona: 'Rural', tarifa: 4500 },
+      'limon': { zona: 'Rural', tarifa: 4500 }
+    };
+    this.montoEnvioGratis = 50000;
+    this.unidadesSinRecargo = 5;
+    this.recargoPorUnidad = 500;
+  }
+  buscarZona(ubicacion) {
+    const prov = ubicacion.provinciaNormalizada();
+    const claves = Object.keys(this.zonas);
+    for (let i = 0; i < claves.length; i++) {
+      if (prov.indexOf(claves[i]) !== -1) return this.zonas[claves[i]];
+    }
+    return null;
+  }
+  calcularCosto(pedido, zona) {
+    // Regla 5: envío gratis si el subtotal alcanza el mínimo (>= 50000)
+    if (pedido.calcularSubtotal() >= this.montoEnvioGratis) return 0;
+    // Regla 6: recargo por unidades adicionales (> 5 unidades)
+    const extra = Math.max(0, pedido.totalUnidades() - this.unidadesSinRecargo) * this.recargoPorUnidad;
+    return zona.tarifa + extra;
+  }
+  evaluar(pedido, ubicacion) {
+    // Regla 1: el pedido debe tener productos
+    if (!pedido.tieneProductos()) {
+      return { aprobado: false, motivo: 'El pedido no tiene productos válidos' };
+    }
+    // Regla 2: la IP debe poder geolocalizarse (situación inesperada)
+    if (!ubicacion.esValida()) {
+      return { aprobado: false, motivo: 'No se pudo determinar la ubicación de la IP ' + (ubicacion.ip || '') + ' (' + (ubicacion.mensaje || 'sin detalle') + ')' };
+    }
+    // Regla 3: solo se despacha dentro del país permitido (Costa Rica)
+    if (ubicacion.codigoPais !== this.paisPermitido) {
+      return { aprobado: false, motivo: 'Fuera de cobertura: solo despachamos dentro de Costa Rica (cliente ubicado en ' + (ubicacion.pais || 'Desconocido') + ')' };
+    }
+    // Regla 4: la provincia debe estar en una zona con cobertura (GAM o Rural)
+    const zona = this.buscarZona(ubicacion);
+    if (!zona) {
+      return { aprobado: false, motivo: 'Fuera de cobertura: la región "' + ubicacion.region + '" no está en nuestras zonas de despacho' };
+    }
+    const costo = this.calcularCosto(pedido, zona);
+    return { 
+      aprobado: true, 
+      zona: zona.zona, 
+      costoEnvio: costo, 
+      motivo: costo === 0 ? 'Envío gratis por compra mayor o igual a 50000' : 'Envío a zona ' + zona.zona 
     };
   }
 }
 
-class ValidadorCobertura {
-  constructor(paisesPermitidos = ["Costa Rica"]) {
-    this.paisesPermitidos = paisesPermitidos.map(p => p.trim().toLowerCase());
-    this.tarifaBase = 5.00;
-    this.recargoPorUnidad = 1.50;
-  }
+// ===== Aplicación sobre los datos reales en n8n =====
+const pedido = new Pedido($('Obtener pedido (JSON Server)').first().json);
+const ubicacion = new Ubicacion($input.first().json);
+const resultado = new PoliticaEnvio().evaluar(pedido, ubicacion);
+const subtotal = pedido.calcularSubtotal();
 
-  verificarPais(paisAPI) {
-    if (!paisAPI || typeof paisAPI !== "string") {
-      return false;
-    }
-    return this.paisesPermitidos.includes(paisAPI.trim().toLowerCase());
-  }
-
-  calcularEnvio(paisAPI, cantidad) {
-    if (!this.verificarPais(paisAPI)) {
-      throw new Error(`Área no habilitada para despacho: '${paisAPI}'.`);
-    }
-    return Number((this.tarifaBase + (Number(cantidad) * this.recargoPorUnidad)).toFixed(2));
-  }
-}
-
-// ----------------------------------------------------------------------------
-// 2. CAPTURA Y PROCESAMIENTO DE DATOS CON SINTAXIS NATIVA DE n8n
-// ----------------------------------------------------------------------------
-
-const itemsEntrada = $input.all();
-const validador = new ValidadorCobertura(["Costa Rica"]);
-const salidas = [];
-
-for (const item of itemsEntrada) {
-  const datosEntrada = item.json;
-
-  try {
-    // ------------------------------------------------------------------------
-    // Extracción flexible de datos (Soporta entrada directa o payload de webhook)
-    // ------------------------------------------------------------------------
-    const payloadCliente = datosEntrada.body || datosEntrada.pedido || datosEntrada;
-    
-    // Extracción de la respuesta devuelta por la API externa (IP-API)
-    // En flujos donde IP-API corre en un nodo previo o viene en los datos del item
-    const respuestaGeo = datosEntrada.geoData || datosEntrada;
-
-    // ------------------------------------------------------------------------
-    // MANEJO DE ERROR 2: Validación previa de presencia de datos de petición
-    // ------------------------------------------------------------------------
-    if (!payloadCliente || Object.keys(payloadCliente).length === 0) {
-      throw new Error("ERROR_DATOS_CLIENTE: El cuerpo de la petición del cliente está vacío o ausente.");
-    }
-
-    // Instanciación del Pedido (Valida internamente id, ipCliente, cliente, etc.)
-    const pedido = new Pedido({
-      id: payloadCliente.id,
-      cliente: payloadCliente.cliente,
-      ipCliente: payloadCliente.ipCliente || payloadCliente.ip,
-      producto: payloadCliente.producto,
-      cantidad: payloadCliente.cantidad
-    });
-
-    // ------------------------------------------------------------------------
-    // MANEJO DE ERROR 1: Verificación de disponibilidad de la API externa
-    // ------------------------------------------------------------------------
-    // Se valida si la API externa falló a nivel de red, status !== 'success' o country ausente
-    const apiFallo = Boolean(
-      respuestaGeo.error || 
-      (respuestaGeo.status && respuestaGeo.status === "fail") || 
-      !respuestaGeo.country
-    );
-
-    if (apiFallo) {
-      const detalleError = respuestaGeo.message || respuestaGeo.error || "No se recibieron datos de geolocalización válidos desde IP-API";
-      throw new Error(`ERROR_API_EXTERNA: ${detalleError}`);
-    }
-
-    // Extracción exitosa del país retornado por la API externa
-    const paisDetectado = respuestaGeo.country;
-
-    // ------------------------------------------------------------------------
-    // Evaluación de la Regla de Negocio (Cobertura de País)
-    // ------------------------------------------------------------------------
-    if (validador.verificarPais(paisDetectado)) {
-      // Cobertura aprobada: Se calcula el costo de envío
-      const costoEnvio = validador.calcularEnvio(paisDetectado, pedido.cantidad);
-      pedido.asignarCostoEnvio(costoEnvio);
-      pedido.aprobar(paisDetectado);
-    } else {
-      // Cobertura denegada: País no admitido en la lista blanca
-      pedido.rechazar(`País '${paisDetectado}' fuera de la zona de cobertura autorizada.`);
-    }
-
-    // Salida estructurada lista para enviar al nodo HTTP Request (JSON Server)
-    salidas.push({
-      json: pedido.aFormatoJsonServer()
-    });
-
-  } catch (error) {
-    // ------------------------------------------------------------------------
-    // Captura centralizada de errores (Error 1, Error 2 o errores imprevistos)
-    // ------------------------------------------------------------------------
-    const esErrorCliente = error.message.startsWith("ERROR_DATOS_CLIENTE");
-    const esErrorAPI = error.message.startsWith("ERROR_API_EXTERNA");
-
-    const registroError = {
-      id: datosEntrada.body?.id || datosEntrada.id || "SIN_ID",
-      cliente: datosEntrada.body?.cliente || datosEntrada.cliente || "DESCONOCIDO",
-      ipCliente: datosEntrada.body?.ipCliente || datosEntrada.body?.ip || datosEntrada.ipCliente || "NO_DISPONIBLE",
-      producto: datosEntrada.body?.producto || datosEntrada.producto || "NO_ESPECIFICADO",
-      cantidad: Number(datosEntrada.body?.cantidad || datosEntrada.cantidad || 0),
-      paisDetectado: null,
-      costoEnvio: 0,
-      estado: "Rechazado",
-      motivoRechazo: error.message,
-      tipoError: esErrorCliente ? "VALIDACION_ENTRADA" : (esErrorAPI ? "FALLO_SERVICIO_EXTERNO" : "ERROR_SISTEMA"),
-      fechaProcesamiento: new Date().toISOString()
-    };
-
-    salidas.push({
-      json: registroError
-    });
-  }
-}
-
-// Retorno del array estructurado de items en formato requerido por n8n
-return salidas;
+return [{ json: {
+  pedidoId: pedido.id,
+  cliente: pedido.cliente,
+  aprobado: resultado.aprobado,
+  motivo: resultado.motivo,
+  zona: resultado.zona || null,
+  subtotal: subtotal,
+  costoEnvio: resultado.aprobado ? resultado.costoEnvio : null,
+  total: resultado.aprobado ? subtotal + resultado.costoEnvio : null,
+  ubicacion: { 
+    pais: ubicacion.pais, 
+    region: ubicacion.region, 
+    ciudad: ubicacion.ciudad, 
+    ip: ubicacion.ip 
+  },
+  jsonServerUrl: $('Validar datos del pedido').first().json.jsonServerUrl
+} }];

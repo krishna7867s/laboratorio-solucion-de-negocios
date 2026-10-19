@@ -5,14 +5,70 @@
       "cliente": "Carlos Perez",
       "ip": "186.15.228.12",
       "estado": "pendiente",
-      "monto": 150,
       "productos": [
         {
           "nombre": "Teclado Mecanico",
           "cantidad": 1,
-          "precio": 150
+          "precio": 15000
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "cliente": "Maria Gomez",
+      "ip": "190.113.115.2",
+      "estado": "pendiente",
+      "productos": [
+        {
+          "nombre": "Mouse Inalambrico",
+          "cantidad": 2,
+          "precio": 8000
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "cliente": "David Morales",
+      "ip": "186.15.228.12",
+      "estado": "pendiente",
+      "productos": [
+        {
+          "nombre": "Monitor Gamer 27",
+          "cantidad": 1,
+          "precio": 75000
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "cliente": "Laura Castro",
+      "ip": "186.15.228.12",
+      "estado": "pendiente",
+      "productos": [
+        {
+          "nombre": "Camiseta Deportiva",
+          "cantidad": 8,
+          "precio": 5000
+        }
+      ]
+    },
+    {
+      "id": "5",
+      "cliente": "Pedro YaProcesado",
+      "ip": "186.15.228.12",
+      "estado": "aprobado",
+      "zonaEnvio": "GAM",
+      "subtotal": 15000,
+      "costoEnvio": 2500,
+      "total": 17500,
+      "productos": [
+        {
+          "nombre": "Memoria RAM",
+          "cantidad": 1,
+          "precio": 15000
         }
       ]
     }
-  ]
+  ],
+  "$schema": "./node_modules/json-server/schema.json"
 }

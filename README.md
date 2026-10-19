@@ -8,60 +8,72 @@ Este repositorio contiene la solución completa para el **Escenario 2** del Labo
 ## 📁 Estructura del Proyecto
 
 ```text
-├── main.js                     # Clases POO en JavaScript puro y pruebas independientes
-├── nodo-code-n8n.js            # Código adaptado para el nodo Code de n8n ($input.all())
-├── workflow-n8n.json           # Definición completa del flujo de n8n exportado
-├── db.json                     # Base de datos simulada para JSON Server (puerto 3000)
-├── DOCUMENTO_LOGICA_NEGOCIO.md # Documento formal de lógica de negocio (2-4 páginas)
-└── README.md                   # Documentación general del repositorio
+├── main.js              # Clases POO (Producto, Pedido, Ubicacion, PoliticaEnvio) y tests locales
+├── nodo-code-n8n.js     # Código POO adaptado para el nodo Code de n8n
+├── workflow-n8n.json    # Workflow exportado de n8n listo para importar
+├── db.json              # Base de datos simulada con JSON Server (puerto 3000)
+└── README.md            # Documentación general del repositorio
 ```
 
 ---
 
-## 🚀 Requisitos Previos
+## 🚀 Requisitos y Puesta en Marcha
 
-- **Node.js** (v18 o superior)
-- **n8n** (`npm install -g n8n` o ejecutado mediante `npx n8n`)
-- **JSON Server** (`npx json-server`)
-
----
-
-## 🛠️ Instrucciones de Ejecución
-
-### 1. Ejecutar Pruebas Locales de POO (sin n8n)
-Para validar las clases `Pedido` y `ValidadorCobertura`, sus reglas de negocio y captura de excepciones:
+### 1. Pruebas Locales de POO en Node.js (Sin n8n)
+Valida todas las clases y reglas de negocio ejecutando:
 ```bash
 node main.js
 ```
+*Ejecuta 7 casos de prueba (GAM, Rural, Envío gratis, Recargo por volumen, IP internacional, error de servicio y pedidos sin productos).*
 
 ### 2. Iniciar JSON Server (Base de Datos Local)
-En una terminal independiente:
 ```bash
 npx json-server --watch db.json --port 3000
 ```
-El endpoint de pedidos estará disponible en `http://localhost:3000/pedidos`.
+Los pedidos quedan disponibles en `http://localhost:3000/pedidos`.
 
-### 3. Iniciar e Importar en n8n
-1. Inicia n8n en tu terminal:
-   ```bash
-   n8n start
-   ```
-2. Abre tu navegador en `http://localhost:5678`.
-3. Crea un nuevo flujo y en los tres puntos (`...`) selecciona **Import from File**.
-4. Selecciona el archivo `workflow-n8n.json`.
-5. Activa el flujo con el botón **Active**.
+### 3. Exponer JSON Server para n8n Cloud
+Si ejecutas n8n en la nube (n8n Cloud), expón el puerto 3000 con **ngrok**:
+```bash
+ngrok http 3000
+```
+Configura la URL generada en el nodo `Configuración` de n8n.
 
 ---
 
 ## 📌 Reglas de Negocio Implementadas
-1. **Cobertura Territorial Estricta:** Admisión exclusiva para países en lista blanca (por defecto: `Costa Rica`).
-2. **Tarifa Base Regionalizada:** Costo fijo inicial de transporte por país habilitado.
-3. **Recargo Logístico por Volumen:** Incremento de $1.50 USD por cada artículo del pedido.
-4. **Ciclo de Vida Auditable:** Transición de estado (`Pendiente` -> `Aprobado` o `Rechazado`).
-5. **No Persistencia de Rechazos:** Órdenes fuera de cobertura no se guardan en JSON Server para evitar despachos erróneos.
+
+1. **Cobertura Territorial Nacional:** Solo se autorizan despachos en Costa Rica (`CR`).
+2. **Tarifas Regionales:**
+   - **GAM** (San José, Alajuela, Heredia, Cartago): **₡2,500**.
+   - **Rural** (Puntarenas, Guanacaste, Limón): **₡4,500**.
+3. **Envío Gratis:** Si el subtotal de la compra es igual o superior a **₡50,000**.
+4. **Recargo por Volumen:** Si el pedido supera **5 unidades físicas**, se suma **₡500** por cada unidad adicional.
+5. **Ciclo de Vida y Persistencia:** Solo se procesan pedidos en estado `pendiente`. Al aprobarse o rechazarse se actualiza el registro en JSON Server mediante `PATCH`.
 
 ---
 
-## 🛡️ Manejo de Errores
-- **Error 1 (API Externa Indisponible):** Fallo o timeout al consultar `IP-API`. Se captura y rechaza el pedido de forma controlada sin detener el workflow.
-- **Error 2 (Datos de Cliente Incompletos):** Omisión de ID, IP inválida o cantidad no positiva. Se valida tanto en el constructor de `Pedido` como en el nodo IF, respondiendo con HTTP 400 Bad Request.
+## 🛡️ Manejo de Errores y Códigos HTTP del Webhook
+
+| Código | Condición | Respuesta |
+| :---: | :--- | :--- |
+| **200 OK** | Pedido aprobado y flete calculado | `{ ok: true, estado: "aprobado", pedido: { ... } }` |
+| **400 Bad Request** | Faltan datos (ID o IP inválida) | `{ ok: false, estado: "rechazado", motivo: "Solicitud incompleta", errores: [...] }` |
+| **404 Not Found** | El pedido no existe en JSON Server | `{ ok: false, estado: "error", motivo: "El pedido X no existe..." }` |
+| **409 Conflict** | El pedido ya había sido procesado | `{ ok: false, estado: "...", motivo: "El pedido ya fue procesado anteriormente..." }` |
+| **422 Unprocessable** | Fuera de cobertura o país no admitido | `{ ok: false, estado: "rechazado", motivo: "Fuera de cobertura...", pedido: { ... } }` |
+| **503 Unavailable** | Falla o timeout en servicio IP-API | `{ ok: false, estado: "pendiente", motivo: "El servicio de geolocalización no responde..." }` |
+
+---
+
+## 🧪 Cómo Probar el Webhook en n8n
+
+Envía una petición `POST` al endpoint del Webhook de n8n (modo Test o Production):
+- **Path:** `/webhook-test/pedidos-cobertura` (o `/webhook/pedidos-cobertura`)
+- **Body JSON:**
+```json
+{
+  "pedidoId": "1",
+  "ip": "186.15.228.12"
+}
+```

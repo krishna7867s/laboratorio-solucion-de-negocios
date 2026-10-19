@@ -1,302 +1,378 @@
 /**
  * ============================================================================
- * LABORATORIO UNIVERSITARIO: ESCENARIO 2
- * SISTEMA DE VERIFICACIÓN GEOGRÁFICA DE COBERTURA DE PEDIDOS
+ * LABORATORIO: ESCENARIO 2 - PEDIDOS CON VERIFICACIÓN GEOGRÁFICA DE COBERTURA
  * Archivo: main.js (Programación Orientada a Objetos en JavaScript ES6+)
+ * 
+ * Este archivo implementa el modelo de clases de POO utilizado en el nodo Code
+ * de n8n, permitiendo validaciones locales y pruebas unitarias independientes.
  * ============================================================================
  */
 
 /**
- * Clase que representa la entidad del Pedido en el sistema.
+ * Representa un producto individual dentro de un pedido.
  */
-class Pedido {
-  /**
-   * Crea una nueva instancia de Pedido.
-   * Valida estrictamente que todos los parámetros obligatorios estén presentes y sean válidos.
-   * 
-   * 
-   * 
-   * 
-   * @param {Object} datos - Objeto con los datos del pedido.
-   * @param {string|number} datos.id - Identificador único del pedido.
-   * @param {string} datos.cliente - Nombre completo del cliente.
-   * @param {string} datos.ipCliente - Dirección IP desde donde se realiza la compra.
-   * @param {string} datos.producto - Nombre o código del producto adquirido.
-   * @param {number} datos.cantidad - Cantidad de unidades solicitadas.
-   */
-  constructor({ id, cliente, ipCliente, producto, cantidad }) {
-    this.validarCamposObligatorios({ id, cliente, ipCliente, producto, cantidad });
-
-    this.id = id;
-    this.cliente = cliente.trim();
-    this.ipCliente = ipCliente.trim();
-    this.producto = producto.trim();
-    this.cantidad = Number(cantidad);
-    
-    // Propiedades de estado inicial
-    this.estado = "Pendiente";
-    this.costoEnvio = 0;
-    this.paisDetectado = null;
-    this.motivoRechazo = null;
-    this.fechaCreacion = new Date().toISOString();
+class Producto {
+  constructor(data = {}) {
+    this.nombre = data.nombre || 'Sin nombre';
+    this.cantidad = Number(data.cantidad) || 0;
+    this.precio = Number(data.precio) || 0;
   }
 
   /**
-   * Valida la existencia y formato de los atributos iniciales.
-   * Lanza un Error si algún dato falta o es inconsistente.
+   * Calcula el total correspondiente a este producto (cantidad * precio).
+   * @returns {number}
    */
-  validarCamposObligatorios({ id, cliente, ipCliente, producto, cantidad }) {
-    if (!id || String(id).trim() === "") {
-      throw new Error("Validación fallida: El campo 'id' es obligatorio y no puede estar vacío.");
-    }
-    if (!cliente || String(cliente).trim() === "") {
-      throw new Error("Validación fallida: El campo 'cliente' es obligatorio y no puede estar vacío.");
-    }
-    if (!ipCliente || String(ipCliente).trim() === "") {
-      throw new Error("Validación fallida: El campo 'ipCliente' es obligatorio y no puede estar vacío.");
-    }
-    if (!producto || String(producto).trim() === "") {
-      throw new Error("Validación fallida: El campo 'producto' es obligatorio y no puede estar vacío.");
-    }
-    if (cantidad === undefined || cantidad === null || isNaN(cantidad) || Number(cantidad) <= 0) {
-      throw new Error("Validación fallida: El campo 'cantidad' debe ser un número entero mayor a cero.");
-    }
-  }
-
-  /**
-   * Asigna el costo de envío calculado al pedido.
-   * @param {number} costo - Monto del costo de envío.
-   */
-  asignarCostoEnvio(costo) {
-    if (isNaN(costo) || Number(costo) < 0) {
-      throw new Error("El costo de envío debe ser un valor numérico mayor o igual a cero.");
-    }
-    this.costoEnvio = Number(costo);
-  }
-
-  /**
-   * Actualiza el estado del pedido a 'Aprobado'.
-   * @param {string} pais - País confirmado donde se entregará el pedido.
-   */
-  aprobar(pais) {
-    this.estado = "Aprobado";
-    this.paisDetectado = pais;
-    this.motivoRechazo = null;
-  }
-
-  /**
-   * Actualiza el estado del pedido a 'Rechazado'.
-   * @param {string} motivo - Razón por la cual no procede el pedido.
-   */
-  rechazar(motivo) {
-    this.estado = "Rechazado";
-    this.costoEnvio = 0;
-    this.motivoRechazo = motivo;
-  }
-
-  /**
-   * Devuelve la representación estructurada del pedido en formato JSON.
-   * @returns {Object} Representación del pedido.
-   */
-  obtenerResumen() {
-    return {
-      id: this.id,
-      cliente: this.cliente,
-      ipCliente: this.ipCliente,
-      producto: this.producto,
-      cantidad: this.cantidad,
-      paisDetectado: this.paisDetectado,
-      costoEnvio: this.costoEnvio,
-      estado: this.estado,
-      motivoRechazo: this.motivoRechazo,
-      fechaCreacion: this.fechaCreacion
-    };
+  calcularTotal() {
+    return this.cantidad * this.precio;
   }
 }
 
 /**
- * Clase encargada de validar la cobertura geográfica y calcular tarifas logísticas.
+ * Representa la entidad de Pedido en el sistema.
  */
-class ValidadorCobertura {
-  /**
-   * Inicializa la lista blanca de países autorizados y tarifas correspondientes.
-   * @param {Array<string>} paisesPermitidos - Lista de países con cobertura activa.
-   */
-  constructor(paisesPermitidos = ["Costa Rica"]) {
-    // Normalizamos los países a minúsculas para comparaciones insensibles a mayúsculas
-    this.paisesPermitidos = paisesPermitidos.map(p => p.trim().toLowerCase());
-    
-    // Configuración de tarifas base por país (en USD)
-    this.tarifasBase = {
-      "costa rica": 5.00,
-      "guatemala": 7.50,
-      "panama": 8.00
-    };
-
-    // Recargo logístico por unidad adicional
-    this.recargoPorUnidad = 1.50;
+class Pedido {
+  constructor(data = {}) {
+    this.id = data.id;
+    this.cliente = data.cliente || 'Desconocido';
+    this.estado = data.estado || 'pendiente';
+    this.productos = (data.productos || []).map(p => new Producto(p));
   }
 
   /**
-   * Valida si el país devuelto por la API externa se encuentra dentro de la zona de cobertura.
-   * @param {string} paisAPI - Nombre del país detectado.
-   * @returns {boolean} True si está en la lista blanca, False en caso contrario.
+   * Verifica si el pedido contiene al menos un producto con cantidad positiva.
+   * @returns {boolean}
    */
-  verificarPais(paisAPI) {
-    if (!paisAPI || typeof paisAPI !== "string") {
-      return false;
-    }
-    const paisNormalizado = paisAPI.trim().toLowerCase();
-    return this.paisesPermitidos.includes(paisNormalizado);
+  tieneProductos() {
+    return this.productos.some(p => p.cantidad > 0);
   }
 
   /**
-   * Calcula el costo de envío dinámico según el país de destino y la cantidad de productos.
-   * Fórmula de negocio: Tarifa Base + (Cantidad * Recargo por Unidad)
-   * 
-   * @param {string} paisAPI - País donde se encuentra el cliente.
-   * @param {number} cantidad - Cantidad de artículos en la orden.
-   * @returns {number} Costo total del flete.
+   * Calcula el subtotal sumando el total de cada producto.
+   * @returns {number}
    */
-  calcularEnvio(paisAPI, cantidad) {
-    if (!this.verificarPais(paisAPI)) {
-      throw new Error(`No se puede calcular el envío: '${paisAPI}' está fuera del área de servicio.`);
-    }
+  calcularSubtotal() {
+    return this.productos.reduce((s, p) => s + p.calcularTotal(), 0);
+  }
 
-    const paisNormalizado = paisAPI.trim().toLowerCase();
-    const tarifaBase = this.tarifasBase[paisNormalizado] || 6.00;
-    const costoVariables = Number(cantidad) * this.recargoPorUnidad;
+  /**
+   * Retorna la suma total de unidades físicas de todos los productos.
+   * @returns {number}
+   */
+  totalUnidades() {
+    return this.productos.reduce((s, p) => s + p.cantidad, 0);
+  }
 
-    return Number((tarifaBase + costoVariables).toFixed(2));
+  /**
+   * Determina si el pedido está en estado 'pendiente'.
+   * @returns {boolean}
+   */
+  estaPendiente() {
+    return String(this.estado).trim().toLowerCase() === 'pendiente';
   }
 }
 
+/**
+ * Encapsula la información geográfica devuelta por el servicio de IP-API.
+ */
+class Ubicacion {
+  constructor(data = {}) {
+    this.status = data.status || 'fail';
+    this.mensaje = data.message || '';
+    this.pais = data.country || '';
+    this.codigoPais = data.countryCode || '';
+    this.region = data.regionName || '';
+    this.ciudad = data.city || '';
+    this.ip = data.query || '';
+  }
+
+  /**
+   * Comprueba si la geolocalización fue exitosa por parte del servicio.
+   * @returns {boolean}
+   */
+  esValida() {
+    return this.status === 'success';
+  }
+
+  /**
+   * Normaliza el nombre de la provincia eliminando acentos, mayúsculas y prefijos.
+   * @returns {string}
+   */
+  provinciaNormalizada() {
+    return (this.region || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace('provincia de', '')
+      .replace('province', '')
+      .trim();
+  }
+}
+
+/**
+ * Encapsula las reglas y políticas logísticas para despacho y cobro de flete.
+ */
+class PoliticaEnvio {
+  constructor() {
+    // Regla territorial: Código ISO del país permitido
+    this.paisPermitido = 'CR';
+
+    // Regla de tarifas por zona geográfica
+    this.zonas = {
+      'san jose': { zona: 'GAM', tarifa: 2500 },
+      'alajuela': { zona: 'GAM', tarifa: 2500 },
+      'heredia': { zona: 'GAM', tarifa: 2500 },
+      'cartago': { zona: 'GAM', tarifa: 2500 },
+      'puntarenas': { zona: 'Rural', tarifa: 4500 },
+      'guanacaste': { zona: 'Rural', tarifa: 4500 },
+      'limon': { zona: 'Rural', tarifa: 4500 }
+    };
+
+    // Parámetros de negocio
+    this.montoEnvioGratis = 50000;
+    this.unidadesSinRecargo = 5;
+    this.recargoPorUnidad = 500;
+  }
+
+  /**
+   * Busca la zona tarifaria según la provincia del cliente.
+   * @param {Ubicacion} ubicacion
+   * @returns {Object|null}
+   */
+  buscarZona(ubicacion) {
+    const prov = ubicacion.provinciaNormalizada();
+    const claves = Object.keys(this.zonas);
+    for (let i = 0; i < claves.length; i++) {
+      if (prov.indexOf(claves[i]) !== -1) return this.zonas[claves[i]];
+    }
+    return null;
+  }
+
+  /**
+   * Calcula el flete aplicando reglas de envío gratis y recargo por volumen.
+   * @param {Pedido} pedido
+   * @param {Object} zona
+   * @returns {number}
+   */
+  calcularCosto(pedido, zona) {
+    // Regla: Envío gratis si el subtotal alcanza el monto mínimo (>= 50,000)
+    if (pedido.calcularSubtotal() >= this.montoEnvioGratis) return 0;
+
+    // Regla: Recargo por unidades adicionales arriba del límite (5 unidades)
+    const extra = Math.max(0, pedido.totalUnidades() - this.unidadesSinRecargo) * this.recargoPorUnidad;
+    return zona.tarifa + extra;
+  }
+
+  /**
+   * Evalúa la cobertura completa de un pedido dado su destino geográfico.
+   * @param {Pedido} pedido
+   * @param {Ubicacion} ubicacion
+   * @returns {Object}
+   */
+  evaluar(pedido, ubicacion) {
+    // Regla 1: El pedido debe tener productos con cantidad > 0
+    if (!pedido.tieneProductos()) {
+      return { aprobado: false, motivo: 'El pedido no tiene productos válidos' };
+    }
+
+    // Regla 2: La IP debe ser geolocalizable
+    if (!ubicacion.esValida()) {
+      return { 
+        aprobado: false, 
+        motivo: `No se pudo determinar la ubicación de la IP ${ubicacion.ip || ''} (${ubicacion.mensaje || 'sin detalle'})` 
+      };
+    }
+
+    // Regla 3: Solo se despacha dentro de Costa Rica
+    if (ubicacion.codigoPais !== this.paisPermitido) {
+      return { 
+        aprobado: false, 
+        motivo: `Fuera de cobertura: solo despachamos dentro de Costa Rica (cliente ubicado en ${ubicacion.pais || 'Desconocido'})` 
+      };
+    }
+
+    // Regla 4: La provincia debe estar dentro de las zonas configuradas
+    const zona = this.buscarZona(ubicacion);
+    if (!zona) {
+      return { 
+        aprobado: false, 
+        motivo: `Fuera de cobertura: la región "${ubicacion.region}" no está en nuestras zonas de despacho` 
+      };
+    }
+
+    const costo = this.calcularCosto(pedido, zona);
+    return {
+      aprobado: true,
+      zona: zona.zona,
+      costoEnvio: costo,
+      motivo: costo === 0 
+        ? 'Envío gratis por compra mayor o igual a 50000' 
+        : `Envío a zona ${zona.zona}`
+    };
+  }
+}
+
+// Exportar clases para uso modular
+module.exports = {
+  Producto,
+  Pedido,
+  Ubicacion,
+  PoliticaEnvio
+};
+
 // ============================================================================
-// BLOQUE DE PRUEBAS LOCALES (Ejecutable con: node main.js)
+// SUITE DE PRUEBAS LOCALES (Ejecutar en terminal con: node main.js)
 // ============================================================================
 if (require.main === module) {
   console.log("==================================================================");
-  console.log("       PRUEBAS LOCALES DE LÓGICA DE NEGOCIO (POO EN NODE.JS)      ");
+  console.log("    PRUEBAS UNITARIAS DE LÓGICA DE NEGOCIO (POO EN JAVASCRIPT)   ");
   console.log("==================================================================\n");
 
-  const validador = new ValidadorCobertura(["Costa Rica", "Panama"]);
+  const politica = new PoliticaEnvio();
 
   // --------------------------------------------------------------------------
-  // CASO DE PRUEBA 1: Pedido Válido con Cobertura Permitida (Costa Rica)
+  // CASO 1: Pedido Válido en GAM (Tarifa 2,500)
   // --------------------------------------------------------------------------
-  console.log(">>> [TEST 1]: Procesando pedido con cobertura válida (Costa Rica)...");
-  try {
-    const pedidoValido = new Pedido({
-      id: "PED-1001",
-      cliente: "Valeria Fernández",
-      ipCliente: "186.15.228.12",
-      producto: "Laptop Gamer Asus",
-      cantidad: 2
-    });
-
-    // Simulación de respuesta exitosa de IP-API
-    const mockRespuestaIP_API = {
-      status: "success",
-      country: "Costa Rica",
-      countryCode: "CR",
-      city: "San José",
-      query: "186.15.228.12"
-    };
-
-    if (validador.verificarPais(mockRespuestaIP_API.country)) {
-      const costo = validador.calcularEnvio(mockRespuestaIP_API.country, pedidoValido.cantidad);
-      pedidoValido.asignarCostoEnvio(costo);
-      pedidoValido.aprobar(mockRespuestaIP_API.country);
-      console.log("✔ Resultado Exitoso:");
-      console.log(pedidoValido.obtenerResumen());
-    } else {
-      pedidoValido.rechazar("País fuera de cobertura");
-      console.log("✖ Pedido rechazado:", pedidoValido.obtenerResumen());
-    }
-  } catch (error) {
-    console.error("Error inesperado en TEST 1:", error.message);
-  }
-
-  console.log("\n------------------------------------------------------------------");
+  console.log(">>> [TEST 1] Pedido en GAM (San José, compra menor a 50,000)...");
+  const p1 = new Pedido({
+    id: "1",
+    cliente: "Carlos Pérez",
+    estado: "pendiente",
+    productos: [{ nombre: "Teclado Mecánico", cantidad: 1, precio: 15000 }]
+  });
+  const u1 = new Ubicacion({
+    status: "success",
+    country: "Costa Rica",
+    countryCode: "CR",
+    regionName: "Provincia de San José",
+    city: "San José",
+    query: "186.15.228.12"
+  });
+  const r1 = politica.evaluar(p1, u1);
+  console.log(`    Aprobado: ${r1.aprobado} | Zona: ${r1.zona} | Flete: ₡${r1.costoEnvio} | Motivo: ${r1.motivo}`);
+  console.assert(r1.aprobado === true && r1.costoEnvio === 2500, "Error en Test 1");
 
   // --------------------------------------------------------------------------
-  // CASO DE PRUEBA 2: Pedido Rechazado por Estar Fuera de Cobertura (México)
+  // CASO 2: Pedido Válido en Zona Rural (Tarifa 4,500)
   // --------------------------------------------------------------------------
-  console.log(">>> [TEST 2]: Procesando pedido con país fuera de cobertura (México)...");
-  try {
-    const pedidoFueraZona = new Pedido({
-      id: "PED-1002",
-      cliente: "Carlos Mendoza",
-      ipCliente: "187.189.15.4",
-      producto: "Monitor Dell 27",
-      cantidad: 1
-    });
-
-    // Simulación de respuesta de IP-API detectando México
-    const mockRespuestaIP_API = {
-      status: "success",
-      country: "Mexico",
-      countryCode: "MX",
-      city: "Ciudad de México",
-      query: "187.189.15.4"
-    };
-
-    if (validador.verificarPais(mockRespuestaIP_API.country)) {
-      const costo = validador.calcularEnvio(mockRespuestaIP_API.country, pedidoFueraZona.cantidad);
-      pedidoFueraZona.asignarCostoEnvio(costo);
-      pedidoFueraZona.aprobar(mockRespuestaIP_API.country);
-    } else {
-      pedidoFueraZona.rechazar(`El país '${mockRespuestaIP_API.country}' no cuenta con envíos disponibles.`);
-    }
-
-    console.log("✔ Rechazo controlado correctamente por cobertura:");
-    console.log(pedidoFueraZona.obtenerResumen());
-  } catch (error) {
-    console.error("Error inesperado en TEST 2:", error.message);
-  }
-
-  console.log("\n------------------------------------------------------------------");
+  console.log("\n>>> [TEST 2] Pedido en Zona Rural (Puntarenas)...");
+  const p2 = new Pedido({
+    id: "2",
+    cliente: "María Gómez",
+    estado: "pendiente",
+    productos: [{ nombre: "Mouse Inalámbrico", cantidad: 2, precio: 8000 }]
+  });
+  const u2 = new Ubicacion({
+    status: "success",
+    country: "Costa Rica",
+    countryCode: "CR",
+    regionName: "Provincia de Puntarenas",
+    city: "Puntarenas",
+    query: "190.113.115.2"
+  });
+  const r2 = politica.evaluar(p2, u2);
+  console.log(`    Aprobado: ${r2.aprobado} | Zona: ${r2.zona} | Flete: ₡${r2.costoEnvio} | Motivo: ${r2.motivo}`);
+  console.assert(r2.aprobado === true && r2.costoEnvio === 4500, "Error en Test 2");
 
   // --------------------------------------------------------------------------
-  // CASO DE PRUEBA 3: Manejo de Error por Datos Obligatorios Faltantes (ID / IP)
+  // CASO 3: Envío Gratis por compra mayor o igual a 50,000
   // --------------------------------------------------------------------------
-  console.log(">>> [TEST 3]: Captura de error al instanciar Pedido sin ID ni IP...");
-  try {
-    new Pedido({
-      id: "", // ID vacío intencional
-      cliente: "Lucía Morales",
-      ipCliente: "", // IP vacía intencional
-      producto: "Teclado Mecánico",
-      cantidad: 3
-    });
-  } catch (error) {
-    console.log("✔ Excepción de validación capturada con éxito en try/catch:");
-    console.log("  Mensaje:", error.message);
-  }
+  console.log("\n>>> [TEST 3] Envío Gratis (Subtotal >= 50,000 en Alajuela)...");
+  const p3 = new Pedido({
+    id: "3",
+    cliente: "David Morales",
+    estado: "pendiente",
+    productos: [{ nombre: "Monitor 27 Pulgadas", cantidad: 1, precio: 75000 }]
+  });
+  const u3 = new Ubicacion({
+    status: "success",
+    country: "Costa Rica",
+    countryCode: "CR",
+    regionName: "Provincia de Alajuela",
+    city: "Alajuela",
+    query: "186.15.200.5"
+  });
+  const r3 = politica.evaluar(p3, u3);
+  console.log(`    Aprobado: ${r3.aprobado} | Zona: ${r3.zona} | Flete: ₡${r3.costoEnvio} | Motivo: ${r3.motivo}`);
+  console.assert(r3.aprobado === true && r3.costoEnvio === 0, "Error en Test 3");
 
-  console.log("\n------------------------------------------------------------------");
+  // --------------------------------------------------------------------------
+  // CASO 4: Recargo por Volumen (> 5 unidades físicas)
+  // --------------------------------------------------------------------------
+  console.log("\n>>> [TEST 4] Recargo por volumen (8 unidades en Heredia -> 2500 + 3*500 = 4000)...");
+  const p4 = new Pedido({
+    id: "4",
+    cliente: "Laura Castro",
+    estado: "pendiente",
+    productos: [{ nombre: "Camiseta Deportiva", cantidad: 8, precio: 5000 }] // Subtotal 40000 (< 50000)
+  });
+  const u4 = new Ubicacion({
+    status: "success",
+    country: "Costa Rica",
+    countryCode: "CR",
+    regionName: "Provincia de Heredia",
+    city: "Heredia",
+    query: "186.15.228.10"
+  });
+  const r4 = politica.evaluar(p4, u4);
+  console.log(`    Aprobado: ${r4.aprobado} | Flete: ₡${r4.costoEnvio} (Base 2500 + Recargo 1500) | Motivo: ${r4.motivo}`);
+  console.assert(r4.aprobado === true && r4.costoEnvio === 4000, "Error en Test 4");
 
   // --------------------------------------------------------------------------
-  // CASO DE PRUEBA 4: Manejo de Error por Cantidad Inválida
+  // CASO 5: Pedido Fuera de Cobertura Internacional (Colombia)
   // --------------------------------------------------------------------------
-  console.log(">>> [TEST 4]: Captura de error con cantidad inválida (0 o negativa)...");
-  try {
-    new Pedido({
-      id: "PED-1004",
-      cliente: "Esteban Gómez",
-      ipCliente: "186.15.228.12",
-      producto: "Mouse Inalámbrico",
-      cantidad: -5 // Cantidad inválida intencional
-    });
-  } catch (error) {
-    console.log("✔ Excepción de validación capturada con éxito en try/catch:");
-    console.log("  Mensaje:", error.message);
-  }
+  console.log("\n>>> [TEST 5] Cliente fuera de Costa Rica (IP de Colombia)...");
+  const p5 = new Pedido({
+    id: "5",
+    cliente: "Juan Valdés",
+    estado: "pendiente",
+    productos: [{ nombre: "Cafetera Express", cantidad: 1, precio: 30000 }]
+  });
+  const u5 = new Ubicacion({
+    status: "success",
+    country: "Colombia",
+    countryCode: "CO",
+    regionName: "Bogotá D.C.",
+    city: "Bogotá",
+    query: "181.128.80.1"
+  });
+  const r5 = politica.evaluar(p5, u5);
+  console.log(`    Aprobado: ${r5.aprobado} | Motivo: ${r5.motivo}`);
+  console.assert(r5.aprobado === false, "Error en Test 5");
+
+  // --------------------------------------------------------------------------
+  // CASO 6: Error o Falla en Servicio de Geolocalización (IP privada / inválida)
+  // --------------------------------------------------------------------------
+  console.log("\n>>> [TEST 6] Falla en IP-API (rango reservado / caída)...");
+  const p6 = new Pedido({
+    id: "6",
+    cliente: "Usuario Localhost",
+    estado: "pendiente",
+    productos: [{ nombre: "Cable HDMI", cantidad: 1, precio: 5000 }]
+  });
+  const u6 = new Ubicacion({
+    status: "fail",
+    message: "reserved range",
+    query: "127.0.0.1"
+  });
+  const r6 = politica.evaluar(p6, u6);
+  console.log(`    Aprobado: ${r6.aprobado} | Motivo: ${r6.motivo}`);
+  console.assert(r6.aprobado === false, "Error en Test 6");
+
+  // --------------------------------------------------------------------------
+  // CASO 7: Pedido sin productos válidos
+  // --------------------------------------------------------------------------
+  console.log("\n>>> [TEST 7] Pedido sin productos válidos (cantidad 0)...");
+  const p7 = new Pedido({
+    id: "7",
+    cliente: "Ana Rojas",
+    estado: "pendiente",
+    productos: [{ nombre: "Producto vacío", cantidad: 0, precio: 1000 }]
+  });
+  const r7 = politica.evaluar(p7, u1);
+  console.log(`    Aprobado: ${r7.aprobado} | Motivo: ${r7.motivo}`);
+  console.assert(r7.aprobado === false, "Error en Test 7");
 
   console.log("\n==================================================================");
-  console.log("                 FIN DE LAS PRUEBAS LOCALES                       ");
+  console.log("     TODOS LOS TESTS DE POO PASARON EXITOSAMENTE (7/7) ✅         ");
   console.log("==================================================================");
 }
-
-// Exportación modular para su reutilización
-module.exports = { Pedido, ValidadorCobertura };

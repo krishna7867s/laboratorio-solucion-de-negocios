@@ -1,212 +1,543 @@
 {
-  "id": "escenario-2-pedidos-geo",
-  "name": "Escenario 2 - Pedidos con Verificación Geográfica",
+  "name": "Pedidos con verificación geográfica de cobertura",
   "nodes": [
     {
       "parameters": {
         "httpMethod": "POST",
-        "path": "pedido",
+        "path": "pedidos-cobertura",
         "responseMode": "responseNode",
         "options": {}
       },
-      "id": "node-webhook",
-      "name": "Webhook Trigger",
+      "id": "9eb17484-1973-4e39-bde9-5e494c3e5784",
+      "name": "Recibir pedido",
       "type": "n8n-nodes-base.webhook",
-      "typeVersion": 1.1,
-      "position": [180, 300],
-      "webhookId": "webhook-pedido-geo"
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        96
+      ],
+      "webhookId": "f1cf42d1-2d71-4021-9c56-e65e8f7da95d"
     },
     {
       "parameters": {
-        "conditions": {
-          "boolean": [
+        "assignments": {
+          "assignments": [
             {
-              "value1": "={{ Boolean($json.body && $json.body.id && $json.body.cliente && $json.body.monto && $json.body.ip && /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/.test($json.body.ip)) }}",
-              "value2": true
+              "id": "cfg1",
+              "name": "jsonServerUrl",
+              "value": "https://uncapriciously-crunchy-adena.ngrok-free.dev",
+              "type": "string"
             }
           ]
-        }
-      },
-      "id": "node-if-validar-entrada",
-      "name": "IF - Datos e IP Válidos (Error 1)",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [400, 300]
-    },
-    {
-      "parameters": {
-        "respondWith": "json",
-        "responseBody": "={\n  \"status\": \"error\",\n  \"mensaje\": \"Datos de pedido inválidos o IP no proporcionada con formato IPv4 válido.\"\n}",
-        "options": {
-          "responseCode": 400
-        }
-      },
-      "id": "node-resp-error-datos",
-      "name": "Respuesta 400 - Error Entrada",
-      "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1.1,
-      "position": [640, 480]
-    },
-    {
-      "parameters": {
-        "url": "=http://ip-api.com/json/{{ $json.body.ip }}",
-        "options": {
-          "timeout": 5000
-        }
-      },
-      "id": "node-http-ip-api",
-      "name": "HTTP Request (IP-API)",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [640, 200],
-      "continueOnFail": true
-    },
-    {
-      "parameters": {
-        "jsCode": "// Adaptación de las clases Pedido y ValidadorCobertura para n8n\nclass Pedido {\n  constructor({ id, cliente, monto, ip }) {\n    this.id = id;\n    this.cliente = cliente;\n    this.monto = Number(monto);\n    this.ip = ip;\n    this.costoEnvio = 0;\n    this.aprobado = false;\n    this.motivoRechazo = null;\n  }\n  aplicarCostoEnvio(c) { this.costoEnvio = Number(c); }\n  obtenerTotal() { return this.monto + this.costoEnvio; }\n  aprobar() { this.aprobado = true; }\n  rechazar(m) { this.aprobado = false; this.motivoRechazo = m; }\n  toJSON() {\n    return {\n      id: this.id,\n      cliente: this.cliente,\n      monto: this.monto,\n      costoEnvio: this.costoEnvio,\n      total: this.obtenerTotal(),\n      ip: this.ip,\n      aprobado: this.aprobado,\n      motivoRechazo: this.motivoRechazo\n    };\n  }\n}\n\nclass ValidadorCobertura {\n  constructor(tarifas = { GT: 25.0, SV: 35.0, HN: 40.0 }) {\n    this.tarifas = tarifas;\n  }\n  verificarZona(geo) {\n    if (!geo || geo.status !== 'success') {\n      return { cubierto: false, motivo: geo?.error || geo?.message || 'Falla al contactar servicio de geolocalización (API caída/timeout)' };\n    }\n    if (!this.tarifas[geo.countryCode]) {\n      return { cubierto: false, motivo: `Zona fuera de cobertura (${geo.country || 'Desconocido'})` };\n    }\n    return { cubierto: true, pais: geo.countryCode, ciudad: geo.city };\n  }\n  calcularCosto(geo, monto) {\n    return monto >= 500 ? 0.0 : this.tarifas[geo.countryCode];\n  }\n}\n\n// Obtención de datos del Webhook e IP-API\nconst rawOrder = $('Webhook Trigger').first().json.body;\nconst geoResponse = $input.first().json;\n\nconst validador = new ValidadorCobertura();\nconst pedido = new Pedido(rawOrder);\n\n// Manejo de Error 2: Falla de red o respuesta vacía de IP-API\nif (geoResponse.error || !geoResponse.status) {\n  pedido.rechazar('Error de conexión con IP-API externa');\n  return [{ json: { ...pedido.toJSON(), coberturaValida: false } }];\n}\n\nconst zona = validador.verificarZona(geoResponse);\nif (!zona.cubierto) {\n  pedido.rechazar(zona.motivo);\n  return [{ json: { ...pedido.toJSON(), coberturaValida: false } }];\n}\n\nconst costoEnvio = validador.calcularCosto(geoResponse, pedido.monto);\npedido.aplicarCostoEnvio(costoEnvio);\npedido.aprobar();\n\nreturn [{\n  json: {\n    ...pedido.toJSON(),\n    coberturaValida: true,\n    ubicacion: { pais: zona.pais, ciudad: zona.ciudad }\n  }\n}];"
-      },
-      "id": "node-code-logica",
-      "name": "Nodo Code (POO y Negocio)",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [880, 200]
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "boolean": [
-            {
-              "value1": "={{ $json.coberturaValida }}",
-              "value2": true
-            }
-          ]
-        }
-      },
-      "id": "node-if-cobertura",
-      "name": "IF - ¿Tiene Cobertura?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [1120, 200]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "http://localhost:3000/pedidos",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ $json }}",
+        },
+        "includeOtherFields": true,
         "options": {}
       },
-      "id": "node-http-json-server",
-      "name": "HTTP Request (JSON Server)",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [1360, 100]
+      "id": "36794ce1-2601-459e-95cc-c46f118bb46f",
+      "name": "Configuración",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        272,
+        320
+      ]
     },
     {
       "parameters": {
-        "respondWith": "json",
-        "responseBody": "={{ $('HTTP Request (JSON Server)').first().json }}",
+        "jsCode": "// Regla de error 1: el dato esperado no llega o viene mal formado\nconst entrada = $input.first().json;\nconst body = entrada.body || {};\nconst errores = [];\nconst pedidoId = (body.pedidoId !== undefined && body.pedidoId !== null && String(body.pedidoId).trim() !== '')\n  ? body.pedidoId\n  : (body.id !== undefined && body.id !== null ? body.id : '');\nconst ip = typeof body.ip === 'string' ? body.ip.trim() : (typeof body.ipCliente === 'string' ? body.ipCliente.trim() : '');\nconst ipv4 = /^(25[0-5]|2[0-4]\\d|1?\\d?\\d)(\\.(25[0-5]|2[0-4]\\d|1?\\d?\\d)){3}$/;\n\nif (!pedidoId || String(pedidoId).trim() === '') {\n  errores.push('Falta el campo pedidoId (o id)');\n}\nif (!ip) {\n  errores.push('Falta el campo ip del cliente');\n} else if (!ipv4.test(ip)) {\n  errores.push('La IP \"' + ip + '\" no tiene un formato IPv4 válido');\n}\n\nreturn [{ json: {\n  valido: errores.length === 0,\n  errores: errores,\n  pedidoId: pedidoId,\n  ip: ip,\n  jsonServerUrl: entrada.jsonServerUrl\n} }];"
+      },
+      "id": "7ced77bb-7277-4ce3-8011-90b87790181e",
+      "name": "Validar datos del pedido",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "v1",
+              "leftValue": "={{ $json.valido }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a7eac049-c929-4f06-9a4f-01d50331f377",
+      "name": "¿Datos válidos?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        720,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.jsonServerUrl }}/pedidos/{{ $json.pedidoId }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "ngrok-skip-browser-warning",
+              "value": "true"
+            }
+          ]
+        },
         "options": {
-          "responseCode": 201
+          "timeout": 8000
         }
       },
-      "id": "node-resp-exito",
-      "name": "Respuesta 201 - Pedido Guardado",
-      "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1.1,
-      "position": [1600, 100]
+      "id": "6ad049cf-00e1-4cc3-b8e5-c074cf822e94",
+      "name": "Obtener pedido (JSON Server)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        944,
+        416
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "p1",
+              "leftValue": "={{ $json.estado }}",
+              "rightValue": "pendiente",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "cfe88923-7db0-4543-a767-288dc9b98736",
+      "name": "¿Pedido pendiente?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1168,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=http://ip-api.com/json/{{ $(\"Validar datos del pedido\").first().json.ip }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "status,message,country,countryCode,regionName,city,query"
+            },
+            {
+              "name": "lang",
+              "value": "es"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 8000
+        }
+      },
+      "id": "4b72e4e7-c1d7-428e-bef9-a75531794fc8",
+      "name": "Geolocalizar IP (IP-API)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        800,
+        416
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ===== Clases POO (misma lógica que main.js) =====\nclass Producto {\n  constructor(data) {\n    this.nombre = data.nombre || 'Sin nombre';\n    this.cantidad = Number(data.cantidad) || 0;\n    this.precio = Number(data.precio) || 0;\n  }\n  calcularTotal() { return this.cantidad * this.precio; }\n}\n\nclass Pedido {\n  constructor(data) {\n    this.id = data.id;\n    this.cliente = data.cliente;\n    this.estado = data.estado;\n    this.productos = (data.productos || []).map(function (p) { return new Producto(p); });\n  }\n  tieneProductos() { return this.productos.some(function (p) { return p.cantidad > 0; }); }\n  calcularSubtotal() { return this.productos.reduce(function (s, p) { return s + p.calcularTotal(); }, 0); }\n  totalUnidades() { return this.productos.reduce(function (s, p) { return s + p.cantidad; }, 0); }\n  estaPendiente() { return String(this.estado).toLowerCase() === 'pendiente'; }\n}\n\nclass Ubicacion {\n  constructor(data) {\n    this.status = data.status;\n    this.mensaje = data.message;\n    this.pais = data.country;\n    this.codigoPais = data.countryCode;\n    this.region = data.regionName || '';\n    this.ciudad = data.city || '';\n    this.ip = data.query;\n  }\n  esValida() { return this.status === 'success'; }\n  provinciaNormalizada() {\n    return (this.region || '').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase()\n      .replace('provincia de', '').replace('province', '').trim();\n  }\n}\n\nclass PoliticaEnvio {\n  constructor() {\n    this.paisPermitido = 'CR';\n    this.zonas = {\n      'san jose': { zona: 'GAM', tarifa: 2500 },\n      'alajuela': { zona: 'GAM', tarifa: 2500 },\n      'heredia': { zona: 'GAM', tarifa: 2500 },\n      'cartago': { zona: 'GAM', tarifa: 2500 },\n      'puntarenas': { zona: 'Rural', tarifa: 4500 },\n      'guanacaste': { zona: 'Rural', tarifa: 4500 },\n      'limon': { zona: 'Rural', tarifa: 4500 }\n    };\n    this.montoEnvioGratis = 50000;\n    this.unidadesSinRecargo = 5;\n    this.recargoPorUnidad = 500;\n  }\n  buscarZona(ubicacion) {\n    const prov = ubicacion.provinciaNormalizada();\n    const claves = Object.keys(this.zonas);\n    for (let i = 0; i < claves.length; i++) {\n      if (prov.indexOf(claves[i]) !== -1) return this.zonas[claves[i]];\n    }\n    return null;\n  }\n  calcularCosto(pedido, zona) {\n    // Regla 5: envío gratis si el subtotal alcanza el mínimo\n    if (pedido.calcularSubtotal() >= this.montoEnvioGratis) return 0;\n    // Regla 6: recargo por unidades adicionales\n    const extra = Math.max(0, pedido.totalUnidades() - this.unidadesSinRecargo) * this.recargoPorUnidad;\n    return zona.tarifa + extra;\n  }\n  evaluar(pedido, ubicacion) {\n    // Regla 1: el pedido debe tener productos\n    if (!pedido.tieneProductos()) return { aprobado: false, motivo: 'El pedido no tiene productos válidos' };\n    // Regla 2: la IP debe poder geolocalizarse (situación inesperada)\n    if (!ubicacion.esValida()) return { aprobado: false, motivo: 'No se pudo determinar la ubicación de la IP ' + (ubicacion.ip || '') + ' (' + (ubicacion.mensaje || 'sin detalle') + ')' };\n    // Regla 3: solo se despacha dentro del país permitido\n    if (ubicacion.codigoPais !== this.paisPermitido) return { aprobado: false, motivo: 'Fuera de cobertura: solo despachamos dentro de Costa Rica (cliente ubicado en ' + (ubicacion.pais || 'Desconocido') + ')' };\n    // Regla 4: la provincia debe estar en una zona con cobertura\n    const zona = this.buscarZona(ubicacion);\n    if (!zona) return { aprobado: false, motivo: 'Fuera de cobertura: la región \"' + ubicacion.region + '\" no está en nuestras zonas de despacho' };\n    const costo = this.calcularCosto(pedido, zona);\n    return { aprobado: true, zona: zona.zona, costoEnvio: costo, motivo: costo === 0 ? 'Envío gratis por compra mayor o igual a 50000' : 'Envío a zona ' + zona.zona };\n  }\n}\n\n// ===== Aplicación sobre los datos reales =====\nconst pedido = new Pedido($('Obtener pedido (JSON Server)').first().json);\nconst ubicacion = new Ubicacion($input.first().json);\nconst resultado = new PoliticaEnvio().evaluar(pedido, ubicacion);\nconst subtotal = pedido.calcularSubtotal();\n\nreturn [{ json: {\n  pedidoId: pedido.id,\n  cliente: pedido.cliente,\n  aprobado: resultado.aprobado,\n  motivo: resultado.motivo,\n  zona: resultado.zona || null,\n  subtotal: subtotal,\n  costoEnvio: resultado.aprobado ? resultado.costoEnvio : null,\n  total: resultado.aprobado ? subtotal + resultado.costoEnvio : null,\n  ubicacion: { pais: ubicacion.pais, region: ubicacion.region, ciudad: ubicacion.ciudad, ip: ubicacion.ip },\n  jsonServerUrl: $('Validar datos del pedido').first().json.jsonServerUrl\n} }];"
+      },
+      "id": "9752f207-1308-4cf8-9929-e8ddd9c4ded8",
+      "name": "Evaluar cobertura y costo (POO)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1024,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.aprobado }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ee174eb4-ae69-4ec8-be3c-33c3ef809f13",
+      "name": "¿En cobertura?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1248,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $json.jsonServerUrl }}/pedidos/{{ $json.pedidoId }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "ngrok-skip-browser-warning",
+              "value": "true"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { estado: \"aprobado\", zonaEnvio: $json.zona, subtotal: $json.subtotal, costoEnvio: $json.costoEnvio, total: $json.total, ubicacion: $json.ubicacion, observacion: $json.motivo, procesadoEn: $now.toISO() } }}",
+        "options": {
+          "timeout": 8000
+        }
+      },
+      "id": "7c67692b-068d-4c59-9029-9cdea0fcdb22",
+      "name": "Actualizar pedido aprobado",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1328,
+        224
+      ]
     },
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={\n  \"status\": \"rechazado\",\n  \"motivo\": \"{{ $json.motivoRechazo }}\",\n  \"pedido\": {{ JSON.stringify($json) }}\n}",
+        "responseBody": "={{ { ok: true, estado: \"aprobado\", pedido: $json } }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "71c28f05-ca38-4ab7-a9a8-8a9e1032fb27",
+      "name": "Responder pedido aprobado",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1552,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $json.jsonServerUrl }}/pedidos/{{ $json.pedidoId }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "ngrok-skip-browser-warning",
+              "value": "true"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { estado: \"rechazado\", motivoRechazo: $json.motivo, ubicacion: $json.ubicacion, procesadoEn: $now.toISO() } }}",
+        "options": {
+          "timeout": 8000
+        }
+      },
+      "id": "37085804-90cb-450c-ae0c-82118542a3eb",
+      "name": "Actualizar pedido rechazado",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1328,
+        416
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: false, estado: \"rechazado\", motivo: $json.motivoRechazo, pedido: $json } }}",
         "options": {
           "responseCode": 422
         }
       },
-      "id": "node-resp-rechazo",
-      "name": "Respuesta 422 - No Cobertura",
+      "id": "40c17b68-d37a-4dfe-ae20-e545d48dc03a",
+      "name": "Responder pedido rechazado",
       "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1.1,
-      "position": [1360, 320]
+      "typeVersion": 1.5,
+      "position": [
+        1552,
+        416
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: false, estado: \"pendiente\", motivo: \"El servicio de geolocalización no responde. El pedido se mantiene pendiente, intente más tarde.\" } }}",
+        "options": {
+          "responseCode": 503
+        }
+      },
+      "id": "05f4453e-fabf-4c68-827e-81b160608766",
+      "name": "Responder servicio de geolocalización caído",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1024,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: false, estado: $json.estado, motivo: \"El pedido ya fue procesado anteriormente (estado: \" + $json.estado + \")\" } }}",
+        "options": {
+          "responseCode": 409
+        }
+      },
+      "id": "187481a9-1d65-4af7-b0c1-33f8266f95b1",
+      "name": "Responder pedido ya procesado",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        912,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: false, estado: \"error\", motivo: \"El pedido \" + $(\"Validar datos del pedido\").first().json.pedidoId + \" no existe o JSON Server no responde\" } }}",
+        "options": {
+          "responseCode": 404
+        }
+      },
+      "id": "6f80352e-254b-4544-9111-357126ce28ef",
+      "name": "Responder pedido no encontrado",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1168,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: false, estado: \"rechazado\", motivo: \"Solicitud incompleta\", errores: $json.errores } }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "7ad8a326-0502-4acd-a0c6-170101cd9e0c",
+      "name": "Responder datos inválidos",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        944,
+        224
+      ]
     }
   ],
+  "pinData": {},
   "connections": {
-    "Webhook Trigger": {
+    "Recibir pedido": {
       "main": [
         [
           {
-            "node": "IF - Datos e IP Válidos (Error 1)",
+            "node": "Configuración",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "IF - Datos e IP Válidos (Error 1)": {
+    "Configuración": {
       "main": [
         [
           {
-            "node": "HTTP Request (IP-API)",
+            "node": "Validar datos del pedido",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar datos del pedido": {
+      "main": [
+        [
+          {
+            "node": "¿Datos válidos?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Datos válidos?": {
+      "main": [
+        [
+          {
+            "node": "Obtener pedido (JSON Server)",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Respuesta 400 - Error Entrada",
+            "node": "Responder datos inválidos",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "HTTP Request (IP-API)": {
+    "Obtener pedido (JSON Server)": {
       "main": [
         [
           {
-            "node": "Nodo Code (POO y Negocio)",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Nodo Code (POO y Negocio)": {
-      "main": [
-        [
-          {
-            "node": "IF - ¿Tiene Cobertura?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "IF - ¿Tiene Cobertura?": {
-      "main": [
-        [
-          {
-            "node": "HTTP Request (JSON Server)",
+            "node": "¿Pedido pendiente?",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Respuesta 422 - No Cobertura",
+            "node": "Responder pedido no encontrado",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "HTTP Request (JSON Server)": {
+    "¿Pedido pendiente?": {
       "main": [
         [
           {
-            "node": "Respuesta 201 - Pedido Guardado",
+            "node": "Geolocalizar IP (IP-API)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder pedido ya procesado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Geolocalizar IP (IP-API)": {
+      "main": [
+        [
+          {
+            "node": "Evaluar cobertura y costo (POO)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder servicio de geolocalización caído",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluar cobertura y costo (POO)": {
+      "main": [
+        [
+          {
+            "node": "¿En cobertura?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿En cobertura?": {
+      "main": [
+        [
+          {
+            "node": "Actualizar pedido aprobado",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Actualizar pedido rechazado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Actualizar pedido aprobado": {
+      "main": [
+        [
+          {
+            "node": "Responder pedido aprobado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Actualizar pedido rechazado": {
+      "main": [
+        [
+          {
+            "node": "Responder pedido rechazado",
             "type": "main",
             "index": 0
           }
@@ -216,6 +547,58 @@
   },
   "active": false,
   "settings": {
-    "executionOrder": "v1"
-  }
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "4611283b-5674-447a-8f57-ac07ac51d104",
+  "meta": {
+    "instanceId": "4164489e38b6a700d6ca10201a388ac1c9b03f806a0b538293fb5796ae846812"
+  },
+  "nodeGroups": [
+    {
+      "id": "37710938-47b0-4a9e-891b-74e9e3513bf9",
+      "name": "Validar y cargar pedido",
+      "nodeIds": [
+        "36794ce1-2601-459e-95cc-c46f118bb46f",
+        "7ced77bb-7277-4ce3-8011-90b87790181e",
+        "a7eac049-c929-4f06-9a4f-01d50331f377",
+        "7ad8a326-0502-4acd-a0c6-170101cd9e0c",
+        "6ad049cf-00e1-4cc3-b8e5-c074cf822e94",
+        "6f80352e-254b-4544-9111-357126ce28ef",
+        "cfe88923-7db0-4543-a767-288dc9b98736"
+      ],
+      "description": "Revisa número e IP del pedido y lo busca en la base; responde con error si faltan datos o el pedido no existe"
+    },
+    {
+      "id": "9fec199f-31ea-456e-b007-c9163c30fded",
+      "name": "Decidir cobertura de envío",
+      "nodeIds": [
+        "4b72e4e7-c1d7-428e-bef9-a75531794fc8",
+        "05f4453e-fabf-4c68-827e-81b160608766",
+        "9752f207-1308-4cf8-9929-e8ddd9c4ded8",
+        "ee174eb4-ae69-4ec8-be3c-33c3ef809f13"
+      ],
+      "description": "Ubica al cliente por su IP y aplica las reglas de zona, envío gratis y recargos para aprobar o rechazar"
+    },
+    {
+      "id": "83d2cb4f-9f9a-48fd-8026-97b5f5a904da",
+      "name": "Aprobar pedido",
+      "nodeIds": [
+        "7c67692b-068d-4c59-9029-9cdea0fcdb22",
+        "71c28f05-ca38-4ab7-a9a8-8a9e1032fb27"
+      ],
+      "description": "Guarda zona, costo de envío y total en el pedido y confirma la aprobación al cliente"
+    },
+    {
+      "id": "05a5c2c8-b3e5-4deb-acd2-5a9dcaaa85ee",
+      "name": "Rechazar pedido",
+      "nodeIds": [
+        "37085804-90cb-450c-ae0c-82118542a3eb",
+        "40c17b68-d37a-4dfe-ae20-e545d48dc03a"
+      ],
+      "description": "Marca el pedido como rechazado con el motivo claro y lo devuelve en la respuesta"
+    }
+  ],
+  "id": "VSHXQ9Xdv8iwcSij",
+  "tags": []
 }
