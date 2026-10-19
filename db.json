@@ -1,3 +1,18 @@
 {
-  "pedidos": []
+  "pedidos": [
+    {
+      "id": "1",
+      "cliente": "Carlos Perez",
+      "ip": "186.15.228.12",
+      "estado": "pendiente",
+      "monto": 150,
+      "productos": [
+        {
+          "nombre": "Teclado Mecanico",
+          "cantidad": 1,
+          "precio": 150
+        }
+      ]
+    }
+  ]
 }
